@@ -1,0 +1,26 @@
+# board/universal/config.txt
+# Bootloader reads [piN] sections and applies only the matching one.
+
+[all]
+arm_64bit=1
+dtoverlay=miniuart-bt    # safe to include for all; ignored on boards without BT
+
+[pi3]
+kernel=kernel-rpi4.img   # BCM2710 kernel works for 3B+
+
+[pi02]
+kernel=kernel-rpi4.img   # Zero 2W is also BCM2710
+
+[pi4]
+kernel=kernel-rpi4.img
+arm_boost=1
+
+[cm4]
+kernel=kernel-rpi4.img
+arm_boost=1
+
+[pi5]
+kernel=kernel-rpi5.img   # BCM2712 needs its own kernel
+
+[cm5]
+kernel=kernel-rpi5.img

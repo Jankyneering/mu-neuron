@@ -1,4 +1,17 @@
 .DS_Store
 *private*
 *.log
-build
+
+# Build outputs — never commit these
+output/
+dl/
+
+# Buildroot generates these in-tree if you accidentally build without O=
+buildroot/output/
+buildroot/dl/
+
+# Editor
+.vscode/
+*.swpimages/
+*images*
+sdcard.img
