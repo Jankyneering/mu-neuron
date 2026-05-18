@@ -60,6 +60,7 @@ RUN apt-get -o APT::Retries=3 install -y --no-install-recommends \
         libelf-dev \
         dosfstools \
         mtools \
+        gdisk \
         && \
     apt-get -y autoremove && \
     apt-get -y clean

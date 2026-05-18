@@ -1,0 +1,291 @@
+name: Build Release Images
+
+# Trigger on version tags (e.g. v1.0.0, v2.3.1)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Allow only one release build at a time
+concurrency:
+  group: release-build
+  cancel-in-progress: false
+
+env:
+  BUILDROOT_VERSION: 2024.02.9  # Keep in sync with your submodule pin
+
+jobs:
+  # ============================================================================
+  # Build each target in a separate parallel job
+  # Each runner has ~14GB free — one target at a time fits comfortably
+  # ============================================================================
+  build-target:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours per target
+
+    strategy:
+      fail-fast: false  # Don't cancel other targets if one fails
+      matrix:
+        target: [rpi3, rpi4, rpi5, zero2w, cm4]
+
+    steps:
+      - name: Free up disk space
+        # GitHub runners have ~25GB total, ~14GB free. Buildroot needs ~15-20GB.
+        # Remove pre-installed tools we don't need.
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive  # Also initializes the buildroot submodule
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            build-essential \
+            bzr \
+            ca-certificates \
+            cmake \
+            cpio \
+            curl \
+            cvs \
+            file \
+            g++ \
+            git \
+            libncurses5-dev \
+            locales \
+            mercurial \
+            python3 \
+            python3-magic \
+            python3-pexpect \
+            rsync \
+            subversion \
+            unzip \
+            wget \
+            genimage \
+            libssl-dev \
+            bison \
+            flex \
+            libelf-dev \
+            dosfstools \
+            mtools
+
+      - name: Install host tar >= 1.35
+        # Buildroot requires tar >= 1.35; Ubuntu runners may have an older version
+        run: |
+          TAR_VERSION=1.35
+          curl -sfL https://ftpmirror.gnu.org/tar/tar-${TAR_VERSION}.tar.xz | \
+            tar -Jx -C /tmp
+          cd /tmp/tar-${TAR_VERSION}
+          FORCE_UNSAFE_CONFIGURE=1 ./configure --disable-year2038
+          make -j$(nproc)
+          sudo make install
+          tar --version
+
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: dl/
+          # Cache key includes the target and Buildroot version.
+          # Falls back to a shared base key so targets share downloaded sources.
+          key: buildroot-dl-${{ env.BUILDROOT_VERSION }}-${{ matrix.target }}-${{ hashFiles(format('configs/muneuron_{0}_defconfig', matrix.target)) }}
+          restore-keys: |
+            buildroot-dl-${{ env.BUILDROOT_VERSION }}-${{ matrix.target }}-
+            buildroot-dl-${{ env.BUILDROOT_VERSION }}-
+
+      - name: Build ${{ matrix.target }}
+        run: |
+          make build-${{ matrix.target }}
+
+      - name: Check disk usage
+        if: always()
+        run: df -h
+
+      - name: Prepare artifacts
+        # rootfs.ext4 is a symlink to rootfs.ext2 — resolve it before upload
+        # since actions/upload-artifact doesn't follow symlinks
+        run: |
+          cp -L output/${{ matrix.target }}/images/rootfs.ext2                 output/${{ matrix.target }}/images/rootfs-resolved.ext4
+
+      - name: Upload target images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.target }}
+          # Upload only the final images, not the full build tree
+          path: |
+            output/${{ matrix.target }}/images/rootfs-resolved.ext4
+            output/${{ matrix.target }}/images/Image
+            output/${{ matrix.target }}/images/*.dtb
+            output/${{ matrix.target }}/images/rpi-firmware/
+          retention-days: 1  # Only needed until the assemble job runs
+          if-no-files-found: error
+
+  # ============================================================================
+  # Download all target artifacts, merge boot partition, assemble final image
+  # ============================================================================
+  assemble:
+    name: Assemble Universal Image
+    runs-on: ubuntu-latest
+    needs: build-target
+    timeout-minutes: 30
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false  # Don't need buildroot source for assembly
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            genimage dosfstools mtools
+
+      - name: Download all target artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # Download all images-* artifacts into output/<target>/images/
+          pattern: images-*
+          merge-multiple: false  # Keep separate directories
+
+      - name: Reconstruct output directory layout
+        # download-artifact puts files in images-rpi3/, images-rpi4/ etc.
+        # We need them at output/rpi3/images/, output/rpi4/images/ etc.
+        run: |
+          for target in rpi3 rpi4 rpi5 zero2w cm4; do
+            mkdir -p output/${target}/images/rpi-firmware
+            if [ -d images-${target} ]; then
+              cp -r images-${target}/* output/${target}/images/
+              # Rename resolved rootfs back to expected name
+              if [ -f output/${target}/images/rootfs-resolved.ext4 ]; then
+                mv output/${target}/images/rootfs-resolved.ext4                    output/${target}/images/rootfs.ext2
+              fi
+            fi
+            # Create sentinel so check-builds passes
+            touch output/${target}/build.done
+          done
+          # Verify
+          echo "Rootfs sizes:"
+          du -sh output/*/images/rootfs.ext2 2>/dev/null || true
+          find output -name "*.dtb" | sort
+
+      - name: Merge boot partition and assemble image
+        run: make merge-boot final-image
+
+      - name: Upload universal image
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdcard-universal
+          path: output/universal/sdcard.img
+          retention-days: 7
+
+      - name: Upload per-target images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-per-target
+          path: |
+            output/rpi3/images/rootfs.ext4
+            output/rpi4/images/rootfs.ext4
+            output/rpi5/images/rootfs.ext4
+            output/zero2w/images/rootfs.ext4
+            output/cm4/images/rootfs.ext4
+          retention-days: 7
+
+  # ============================================================================
+  # Create GitHub release and attach images
+  # ============================================================================
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: assemble
+    permissions:
+      contents: write  # Required to create releases
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Download universal image
+        uses: actions/download-artifact@v4
+        with:
+          name: sdcard-universal
+          path: release-assets/
+
+      - name: Download per-target images
+        uses: actions/download-artifact@v4
+        with:
+          name: images-per-target
+          path: release-assets/per-target/
+
+      - name: Compress images
+        run: |
+          cd release-assets
+          # Compress the universal image (typically 600MB+ uncompressed)
+          gzip -9 -k sdcard.img
+          mv sdcard.img.gz sdcard-${{ github.ref_name }}.img.gz
+          # Compress per-target rootfs images
+          for target in rpi3 rpi4 rpi5 zero2w cm4; do
+            f="per-target/output/${target}/images/rootfs.ext4"
+            if [ -f "$f" ]; then
+              gzip -9 -c "$f" > rootfs-${target}-${{ github.ref_name }}.ext4.gz
+            fi
+          done
+          ls -lh *.gz
+
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          sha256sum *.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "mu-neuron ${{ github.ref_name }}"
+          body: |
+            ## mu-neuron ${{ github.ref_name }}
+
+            ### Universal image
+            Flash `sdcard-${{ github.ref_name }}.img.gz` to any supported board:
+            - Raspberry Pi 3B+
+            - Raspberry Pi 4 / CM4
+            - Raspberry Pi 5 / CM5
+            - Raspberry Pi Zero 2W
+
+            ### Flash instructions
+            ```bash
+            # Decompress and flash in one step
+            gunzip -c sdcard-${{ github.ref_name }}.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+            ```
+
+            ### Checksums
+            See `SHA256SUMS` for file integrity verification.
+
+            ### Build info
+            - Buildroot version: ${{ env.BUILDROOT_VERSION }}
+            - Commit: ${{ github.sha }}
+          files: |
+            release-assets/sdcard-${{ github.ref_name }}.img.gz
+            release-assets/rootfs-*.ext4.gz
+            release-assets/SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

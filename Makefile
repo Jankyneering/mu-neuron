@@ -321,28 +321,34 @@ merge-boot: build-all check-builds dtbs
 # We use rpi4's rootfs as the shared userspace (all targets built identically).
 GENIMAGE     := genimage
 GENIMAGE_CFG := $(BOARD_DIR)/genimage.cfg
-ROOTFS       := $(OUTPUT_DIR)/rpi4/images/rootfs.ext4
+ROOTFS       := $(OUTPUT_DIR)/rpi4/images/rootfs.ext2  # ext4 is a symlink to this
 
 final-image: merge-boot
 	@echo ">>> Assembling final sdcard.img"
 	@if [ ! -f $(GENIMAGE_CFG) ]; then \
 	    echo "ERROR: $(GENIMAGE_CFG) not found"; exit 1; \
 	fi
-	@if [ ! -f $(ROOTFS) ]; then \
+	@if [ ! -f $(ROOTFS) ] && [ ! -L $(ROOTFS) ]; then \
 	    echo "ERROR: rootfs not found at $(ROOTFS)"; exit 1; \
 	fi
-	@mkdir -p /tmp/empty
-	# Copy rootfs into inputpath so genimage finds both boot files and rootfs.ext4
-	@cp $(ROOTFS) $(UNIVERSAL_BOOT)/rootfs.ext4
-	@mkdir -p $(OUTPUT_DIR)/universal/tmp
-	# Clear genimage tmp to avoid stale state
+	@echo "    rootfs.ext4: $$(du -sh $(ROOTFS) | cut -f1)"
+	# Copy Buildroot's pre-built rootfs.ext4 into inputpath alongside boot files
+	# genimage will find it there when assembling sdcard.img
+	@cp -L $(ROOTFS) $(UNIVERSAL_BOOT)/rootfs.ext4
+	# Use an empty rootpath — we don't want genimage to regenerate rootfs
+	@mkdir -p /tmp/genimage-empty
 	@rm -rf $(OUTPUT_DIR)/universal/tmp && mkdir -p $(OUTPUT_DIR)/universal/tmp
 	$(GENIMAGE) \
 	    --config     $(GENIMAGE_CFG) \
-	    --rootpath   /tmp/empty \
+	    --rootpath   /tmp/genimage-empty \
 	    --tmppath    $(OUTPUT_DIR)/universal/tmp \
 	    --inputpath  $(UNIVERSAL_BOOT) \
 	    --outputpath $(OUTPUT_DIR)/universal
+	# Verify the assembled image looks right
+	@echo ""
+	@echo ">>> Image partition layout:"
+	@sgdisk -p $(OUTPUT_DIR)/universal/sdcard.img 2>/dev/null || \
+	    fdisk -l $(OUTPUT_DIR)/universal/sdcard.img 2>/dev/null || true
 	@echo ""
 	@echo ">>> Done: $(FINAL_IMAGE)"
 	@echo ">>> Flash with:"
