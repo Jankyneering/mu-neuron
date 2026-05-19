@@ -174,11 +174,12 @@ check-builds:
 	@echo ">>> Checking all builds completed..."
 	@all_ok=1; \
 	for target in $(TARGETS); do \
-	    if [ ! -f $(OUTPUT_DIR)/$$target/images/rootfs.ext4 ]; then \
+	    rootfs=$$(find $(OUTPUT_DIR)/$$target/images -maxdepth 1 -name "rootfs.ext*" 2>/dev/null | head -1); \
+	    if [ -n "$$rootfs" ] && [ -s "$$rootfs" ]; then \
+	        echo "  OK:      $$target ($$rootfs)"; \
+	    else \
 	        echo "  MISSING: $$target (run 'make build-$$target')"; \
 	        all_ok=0; \
-	    else \
-	        echo "  OK:      $$target"; \
 	    fi; \
 	done; \
 	if [ $$all_ok -eq 0 ]; then exit 1; fi

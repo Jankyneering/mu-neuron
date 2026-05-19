@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BUILDROOT_VERSION: 2024.02.9  # Keep in sync with your submodule pin
+  BUILDROOT_VERSION: 2025.02.13 # Keep in sync with your submodule pin
 
 jobs:
   # ============================================================================
@@ -166,25 +166,40 @@ jobs:
           merge-multiple: false  # Keep separate directories
 
       - name: Reconstruct output directory layout
-        # download-artifact puts files in images-rpi3/, images-rpi4/ etc.
-        # We need them at output/rpi3/images/, output/rpi4/images/ etc.
         run: |
+          echo "=== Downloaded artifact directories ==="
+          ls -la | grep "^d.*images-" || echo "No images- dirs at root"
+
           for target in rpi3 rpi4 rpi5 zero2w cm4; do
-            mkdir -p output/${target}/images/rpi-firmware
-            if [ -d images-${target} ]; then
-              cp -r images-${target}/* output/${target}/images/
-              # Rename resolved rootfs back to expected name
-              if [ -f output/${target}/images/rootfs-resolved.ext4 ]; then
-                mv output/${target}/images/rootfs-resolved.ext4                    output/${target}/images/rootfs.ext2
-              fi
+            echo "--- Processing $target ---"
+            mkdir -p output/${target}/images/rpi-firmware/overlays
+            src="images-${target}"
+
+            if [ ! -d "$src" ]; then
+              echo "ERROR: $src not found"; ls -la; exit 1
             fi
-            # Create sentinel so check-builds passes
+
+            cp -r "$src"/. output/${target}/images/
+
+            # Rename resolved rootfs
+            if [ -f "output/${target}/images/rootfs-resolved.ext4" ]; then
+              mv "output/${target}/images/rootfs-resolved.ext4" \
+                 "output/${target}/images/rootfs.ext2"
+            fi
+
+            # Verify rootfs has content
+            rootfs="output/${target}/images/rootfs.ext2"
+            if [ ! -s "$rootfs" ]; then
+              echo "ERROR: rootfs missing or empty at $rootfs"; exit 1
+            fi
+            echo "    rootfs: $(du -sh $rootfs | cut -f1)"
+
             touch output/${target}/build.done
           done
-          # Verify
-          echo "Rootfs sizes:"
-          du -sh output/*/images/rootfs.ext2 2>/dev/null || true
-          find output -name "*.dtb" | sort
+
+          echo "=== Verification ==="
+          du -sh output/*/images/rootfs.ext2 2>/dev/null
+          find output -name "build.done" | sort
 
       - name: Merge boot partition and assemble image
         run: make merge-boot final-image
@@ -201,11 +216,11 @@ jobs:
         with:
           name: images-per-target
           path: |
-            output/rpi3/images/rootfs.ext4
-            output/rpi4/images/rootfs.ext4
-            output/rpi5/images/rootfs.ext4
-            output/zero2w/images/rootfs.ext4
-            output/cm4/images/rootfs.ext4
+            output/rpi3/images/rootfs.ext2
+            output/rpi4/images/rootfs.ext2
+            output/rpi5/images/rootfs.ext2
+            output/zero2w/images/rootfs.ext2
+            output/cm4/images/rootfs.ext2
           retention-days: 7
 
   # ============================================================================
