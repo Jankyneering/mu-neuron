@@ -4,6 +4,8 @@
 [all]
 arm_64bit=1
 dtoverlay=miniuart-bt    # safe to include for all; ignored on boards without BT
+dtparam=i2c_arm=on
+dtparam=i2c_arm_baudrate=400000   # 400kHz fast mode for the SSD1306
 
 [pi3]
 kernel=kernel-rpi4.img   # BCM2710 kernel works for 3B+

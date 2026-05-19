@@ -1,0 +1,6 @@
+# board/universal/packages/python-luma-oled/Config.in
+config BR2_PACKAGE_PYTHON_LUMA_OLED
+    bool "python-luma-oled"
+    depends on BR2_PACKAGE_PYTHON3
+    help
+      OLED display driver library.

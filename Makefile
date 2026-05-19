@@ -13,6 +13,9 @@ FINAL_IMAGE    := $(OUTPUT_DIR)/universal/sdcard.img
 # CM5 DTBs are pulled from the rpi5 build output — no separate build needed.
 TARGETS := rpi3 rpi4 rpi5 zero2w cm4
 
+# Path to common config fragment applied to all targets
+COMMON_FRAGMENT := $(BOARD_DIR)/config-fragments/common.config
+
 # Your saved defconfigs (never overwritten)
 DEFCONFIG_rpi3   := muneuron_rpi3_defconfig     # BCM2710, 64-bit
 DEFCONFIG_rpi4   := muneuron_rpi4_defconfig     # BCM2711, 64-bit
@@ -125,9 +128,17 @@ build-%:
 	    exit 1; \
 	fi
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	    BR2_EXTERNAL=$(CURDIR) \
 	    BR2_DEFCONFIG=$(CURDIR)/configs/$(DEFCONFIG_$*) \
 	    defconfig
-	@echo ">>> Building $* (this will take a while...)"
+	@echo ">>> Merging common fragment"
+	$(BUILDROOT_DIR)/support/kconfig/merge_config.sh \
+	    -m -O $(OUTPUT_DIR)/$* \
+	    $(OUTPUT_DIR)/$*/.config \
+	    $(COMMON_FRAGMENT)
+	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	    olddefconfig
+	@echo ">>> Building $*"
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    BR2_DL_DIR=$(DL_DIR) \
 	    all
