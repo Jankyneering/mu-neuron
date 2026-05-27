@@ -41,6 +41,12 @@ DTBS_rpi5   := bcm2712-rpi-5-b.dtb bcm2712d0-rpi-5-b.dtb bcm2712-rpi-500.dtb \
 DTBS_zero2w := bcm2710-rpi-zero-2-w.dtb
 DTBS_cm4    :=   # Covered by rpi4 build above
 
+# Remote DTS details
+REMOTE_DTS_URL := https://raw.githubusercontent.com/Jankyneering/mu-cell-bb-drivers/main/raspberry-pi-drivers/mu-cell-bb-dts/mu-cell-bb_raspberrypi.dts
+REMOTE_DTS_NAME := mu-cell-bb_raspberrypi.dts
+# This sentinel file tracks if we have the remote file
+REMOTE_DTS_SENTINEL := $(CUSTOM_DTS_DIR)/.remote_dts_downloaded
+
 # Per-board overlays (space-separated, without .dtbo extension)
 OVERLAYS_rpi3   := miniuart-bt
 OVERLAYS_rpi4   := miniuart-bt
@@ -199,6 +205,24 @@ check-builds:
 # DTB handling
 # =============================================================================
 
+# Download the remote DTS if the sentinel file doesn't exist
+fetch-remote-dts:
+	@mkdir -p $(CUSTOM_DTS_DIR)
+	@if [ ! -f $(REMOTE_DTS_SENTINEL) ]; then \
+		echo ">>> Fetching remote DTS from GitHub..."; \
+		curl -L $(REMOTE_DTS_URL) -o $(CUSTOM_DTS_DIR)/$(REMOTE_DTS_NAME); \
+		if [ $$? -eq 0 ]; then \
+			touch $(REMOTE_DTS_SENTINEL); \
+			echo ">>> Remote DTS downloaded successfully."; \
+		else \
+			echo "ERROR: Failed to download remote DTS."; \
+			exit 1; \
+		fi; \
+	else \
+		echo ">>> Remote DTS is already up to date."; \
+	fi
+
+
 # Copy upstream DTBs from each target's build output into boot/.
 # DTBs are copied to the root of the boot partition — the RPi bootloader
 # finds them there automatically based on the board model.
@@ -227,7 +251,7 @@ dtbs-%:
 #
 # .dts  -> .dtb   standalone device tree
 # .dtso -> .dtbo  overlay, patched on top of base DT at boot
-custom-dtbs-%:
+custom-dtbs-%: fetch-remote-dts
 	@echo ">>> Compiling custom DTBs/overlays for $*"
 	@mkdir -p $(UNIVERSAL_BOOT)/overlays
 	@if [ ! -f $(DTC) ]; then \
