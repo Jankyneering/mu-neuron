@@ -1,0 +1,3 @@
+# board/universal/requirements.txt
+luma.oled
+luma.core

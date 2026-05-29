@@ -1,26 +1,15 @@
 # board/universal/config.txt
-# Bootloader reads [piN] sections and applies only the matching one.
+# Used by BR2_PACKAGE_RPI_FIRMWARE_CONFIG_FILE for per-board builds.
+# The RPi bootloader reads this from the FAT boot partition.
+#
+# NOTE: for the universal multi-board image (merge-boot target), the
+# Makefile copies this same file but the [piN] kernel= lines are what
+# select the right kernel per board at runtime.
 
 [all]
 arm_64bit=1
-dtoverlay=miniuart-bt    # safe to include for all; ignored on boards without BT
-
-[pi3]
-kernel=kernel-rpi4.img   # BCM2710 kernel works for 3B+
-
-[pi02]
-kernel=kernel-rpi4.img   # Zero 2W is also BCM2710
-
-[pi4]
-kernel=kernel-rpi4.img
-arm_boost=1
-
-[cm4]
-kernel=kernel-rpi4.img
-arm_boost=1
-
-[pi5]
-kernel=kernel-rpi5.img   # BCM2712 needs its own kernel
-
-[cm5]
-kernel=kernel-rpi5.img
+kernel=Image
+dtoverlay=miniuart-bt
+dtparam=i2c_arm=on
+dtparam=i2c_arm_baudrate=400000
+enable_uart=1

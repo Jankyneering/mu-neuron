@@ -1,0 +1,11 @@
+# Buildroot device/permissions table
+# Format: path type mode uid gid major minor start increment count
+# type: f=file, d=directory
+# This ensures init scripts have execute permission in the final rootfs
+# regardless of what the host filesystem preserves from the overlay copy.
+
+/etc/init.d	d	755	0	0	-	-	-	-	-
+/etc/init.d/S90oled-monitor	f	755	0	0	-	-	-	-	-
+/boot	d	755	0	0	-	-	-	-	-
+/etc/init.d/S02fstab	f	755	0	0	-	-	-	-	-
+/etc/init.d/S05modules	f	755	0	0	-	-	-	-	-
