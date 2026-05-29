@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false  # Don't cancel other targets if one fails
       matrix:
-        target: [rpi3, rpi4, rpi5, zero2w, cm4]
+        target: [rpi3, rpi4, rpi5, zero2w, cm4, cm5]
 
     steps:
       - name: Free up disk space
@@ -112,124 +112,30 @@ jobs:
 
       - name: Prepare artifacts
         # rootfs.ext4 is a symlink to rootfs.ext2 — resolve it before upload
-        # since actions/upload-artifact doesn't follow symlinks
+        # since actions/upload-artifact doesn't follow symlinks.
+        # Also resolve the sdcard.img produced by the target's post-image.sh.
         run: |
-          cp -L output/${{ matrix.target }}/images/rootfs.ext2                 output/${{ matrix.target }}/images/rootfs-resolved.ext4
+          cp -L output/${{ matrix.target }}/images/rootfs.ext2 \
+                 output/${{ matrix.target }}/images/rootfs-resolved.ext4
+          cp -L output/${{ matrix.target }}/images/sdcard.img \
+                 output/${{ matrix.target }}/images/sdcard-resolved.img
 
       - name: Upload target images
         uses: actions/upload-artifact@v4
         with:
           name: images-${{ matrix.target }}
-          # Upload only the final images, not the full build tree
           path: |
-            output/${{ matrix.target }}/images/rootfs-resolved.ext4
-            output/${{ matrix.target }}/images/Image
-            output/${{ matrix.target }}/images/*.dtb
-            output/${{ matrix.target }}/images/rpi-firmware/
-          retention-days: 1  # Only needed until the assemble job runs
+            output/${{ matrix.target }}/images/sdcard-resolved.img
+          retention-days: 7
           if-no-files-found: error
 
   # ============================================================================
-  # Download all target artifacts, merge boot partition, assemble final image
-  # ============================================================================
-  assemble:
-    name: Assemble Universal Image
-    runs-on: ubuntu-latest
-    needs: build-target
-    timeout-minutes: 30
-
-    steps:
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          df -h
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: false  # Don't need buildroot source for assembly
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            genimage dosfstools mtools
-
-      - name: Download all target artifacts
-        uses: actions/download-artifact@v4
-        with:
-          # Download all images-* artifacts into output/<target>/images/
-          pattern: images-*
-          merge-multiple: false  # Keep separate directories
-
-      - name: Reconstruct output directory layout
-        run: |
-          echo "=== Downloaded artifact directories ==="
-          ls -la | grep "^d.*images-" || echo "No images- dirs at root"
-
-          for target in rpi3 rpi4 rpi5 zero2w cm4; do
-            echo "--- Processing $target ---"
-            mkdir -p output/${target}/images/rpi-firmware/overlays
-            src="images-${target}"
-
-            if [ ! -d "$src" ]; then
-              echo "ERROR: $src not found"; ls -la; exit 1
-            fi
-
-            cp -r "$src"/. output/${target}/images/
-
-            # Rename resolved rootfs
-            if [ -f "output/${target}/images/rootfs-resolved.ext4" ]; then
-              mv "output/${target}/images/rootfs-resolved.ext4" \
-                 "output/${target}/images/rootfs.ext2"
-            fi
-
-            # Verify rootfs has content
-            rootfs="output/${target}/images/rootfs.ext2"
-            if [ ! -s "$rootfs" ]; then
-              echo "ERROR: rootfs missing or empty at $rootfs"; exit 1
-            fi
-            echo "    rootfs: $(du -sh $rootfs | cut -f1)"
-
-            touch output/${target}/build.done
-          done
-
-          echo "=== Verification ==="
-          du -sh output/*/images/rootfs.ext2 2>/dev/null
-          find output -name "build.done" | sort
-
-      - name: Merge boot partition and assemble image
-        run: make merge-boot final-image
-
-      - name: Upload universal image
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdcard-universal
-          path: output/universal/sdcard.img
-          retention-days: 7
-
-      - name: Upload per-target images
-        uses: actions/upload-artifact@v4
-        with:
-          name: images-per-target
-          path: |
-            output/rpi3/images/rootfs.ext2
-            output/rpi4/images/rootfs.ext2
-            output/rpi5/images/rootfs.ext2
-            output/zero2w/images/rootfs.ext2
-            output/cm4/images/rootfs.ext2
-          retention-days: 7
-
-  # ============================================================================
-  # Create GitHub release and attach images
+  # Create GitHub release and attach one SD card image per board
   # ============================================================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: assemble
+    needs: build-target
     permissions:
       contents: write  # Required to create releases
 
@@ -239,32 +145,24 @@ jobs:
         with:
           submodules: false
 
-      - name: Download universal image
+      - name: Download all target images
         uses: actions/download-artifact@v4
         with:
-          name: sdcard-universal
-          path: release-assets/
+          pattern: images-*
+          merge-multiple: false  # Keep separate directories per target
 
-      - name: Download per-target images
-        uses: actions/download-artifact@v4
-        with:
-          name: images-per-target
-          path: release-assets/per-target/
-
-      - name: Compress images
+      - name: Compress and rename images
         run: |
-          cd release-assets
-          # Compress the universal image (typically 600MB+ uncompressed)
-          gzip -9 -k sdcard.img
-          mv sdcard.img.gz sdcard-${{ github.ref_name }}.img.gz
-          # Compress per-target rootfs images
-          for target in rpi3 rpi4 rpi5 zero2w cm4; do
-            f="per-target/output/${target}/images/rootfs.ext4"
-            if [ -f "$f" ]; then
-              gzip -9 -c "$f" > rootfs-${target}-${{ github.ref_name }}.ext4.gz
+          mkdir -p release-assets
+          for target in rpi3 rpi4 rpi5 zero2w cm4 cm5; do
+            src="images-${target}/sdcard-resolved.img"
+            if [ ! -f "$src" ]; then
+              echo "ERROR: $src not found"; ls -la images-${target}/ 2>/dev/null || true; exit 1
             fi
+            echo "Compressing ${target}…"
+            gzip -9 -c "$src" > "release-assets/sdcard-${target}-${{ github.ref_name }}.img.gz"
           done
-          ls -lh *.gz
+          ls -lh release-assets/
 
       - name: Generate checksums
         run: |
@@ -279,17 +177,21 @@ jobs:
           body: |
             ## mu-neuron ${{ github.ref_name }}
 
-            ### Universal image
-            Flash `sdcard-${{ github.ref_name }}.img.gz` to any supported board:
-            - Raspberry Pi 3B+
-            - Raspberry Pi 4 / CM4
-            - Raspberry Pi 5 / CM5
-            - Raspberry Pi Zero 2W
+            ### Per-board SD card images
+
+            | File | Board |
+            |------|-------|
+            | `sdcard-rpi3-${{ github.ref_name }}.img.gz` | Raspberry Pi 3B / 3B+ / CM3 |
+            | `sdcard-rpi4-${{ github.ref_name }}.img.gz` | Raspberry Pi 4B / 400 |
+            | `sdcard-rpi5-${{ github.ref_name }}.img.gz` | Raspberry Pi 5B |
+            | `sdcard-zero2w-${{ github.ref_name }}.img.gz` | Raspberry Pi Zero 2W |
+            | `sdcard-cm4-${{ github.ref_name }}.img.gz` | Compute Module 4 |
+            | `sdcard-cm5-${{ github.ref_name }}.img.gz` | Compute Module 5 |
 
             ### Flash instructions
             ```bash
-            # Decompress and flash in one step
-            gunzip -c sdcard-${{ github.ref_name }}.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+            # Decompress and flash in one step (replace <target> and /dev/sdX)
+            gunzip -c sdcard-<target>-${{ github.ref_name }}.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
             ```
 
             ### Checksums
@@ -299,8 +201,7 @@ jobs:
             - Buildroot version: ${{ env.BUILDROOT_VERSION }}
             - Commit: ${{ github.sha }}
           files: |
-            release-assets/sdcard-${{ github.ref_name }}.img.gz
-            release-assets/rootfs-*.ext4.gz
+            release-assets/sdcard-*.img.gz
             release-assets/SHA256SUMS
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

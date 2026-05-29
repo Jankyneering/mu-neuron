@@ -1,0 +1,6 @@
+# board/universal/packages/python-luma-core/Config.in
+config BR2_PACKAGE_PYTHON_LUMA_CORE
+    bool "python-luma-core"
+    depends on BR2_PACKAGE_PYTHON3
+    help
+      Core display library for luma drivers.
