@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# S05modules — load kernel modules listed in /etc/modules
+# Runs after fstab (S02) but before services that depend on devices (S90+).
+# Busybox init does not process /etc/modules automatically.
+#
+
+case "$1" in
+    start)
+        if [ -f /etc/modules ]; then
+            echo "Loading kernel modules..."
+            # Strip comments and blank lines, load each module
+            grep -v '^\s*#' /etc/modules | grep -v '^\s*$' | while read -r module args; do
+                modprobe "$module" $args 2>/dev/null && \
+                    echo "  loaded: $module" || \
+                    echo "  failed: $module"
+            done
+        fi
+        ;;
+    stop)
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac

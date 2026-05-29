@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# S02fstab — mount filesystems listed in /etc/fstab
+# Runs early (S02) so /boot is available before other services start.
+# Busybox init does not process fstab automatically.
+#
+
+case "$1" in
+    start)
+        echo "Mounting filesystems from /etc/fstab..."
+        mount -a
+        ;;
+    stop)
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
