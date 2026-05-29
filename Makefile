@@ -11,7 +11,7 @@ FINAL_IMAGE    := $(OUTPUT_DIR)/universal/sdcard.img
 
 # CM5 is consolidated into rpi5 (same BCM2712 SoC, same kernel, same rootfs).
 # CM5 DTBs are pulled from the rpi5 build output — no separate build needed.
-TARGETS := rpi3 rpi4 rpi5 zero2w cm4
+TARGETS := rpi3 rpi4 rpi5 zero2w cm4 cm5
 
 # Path to common config fragment applied to all targets
 COMMON_FRAGMENT := $(BOARD_DIR)/config-fragments/common.config
@@ -22,6 +22,7 @@ DEFCONFIG_rpi4   := muneuron_rpi4_defconfig     # BCM2711, 64-bit
 DEFCONFIG_rpi5   := muneuron_rpi5_defconfig     # BCM2712, 64-bit (also covers CM5)
 DEFCONFIG_zero2w := muneuron_zero2w_defconfig   # BCM2710, 64-bit
 DEFCONFIG_cm4    := muneuron_cm4_defconfig      # BCM2711, 64-bit
+DEFCONFIG_cm5    := muneuron_cm5_defconfig      # BCM2712, 64-bit (same SoC as rpi5)
 
 # Upstream Buildroot defconfigs — used ONCE for bootstrapping only
 UPSTREAM_DEFCONFIG_rpi3   := raspberrypi3_64_defconfig
@@ -29,6 +30,7 @@ UPSTREAM_DEFCONFIG_rpi4   := raspberrypi4_64_defconfig
 UPSTREAM_DEFCONFIG_rpi5   := raspberrypi5_defconfig
 UPSTREAM_DEFCONFIG_zero2w := raspberrypizero2w_64_defconfig
 UPSTREAM_DEFCONFIG_cm4    := raspberrypicm4io_64_defconfig
+UPSTREAM_DEFCONFIG_cm5    := raspberrypicm5io_defconfig
 
 # DTBs to pull from each target's build output.
 # CM4 DTBs come from the rpi4 build (same BCM2711 SoC).
@@ -433,3 +435,4 @@ clean-all:
 	@echo "All build outputs removed. Download cache in dl/ preserved."
 	@echo "To also wipe the download cache:"
 	@echo "  docker volume rm rpi-buildroot-dl && docker volume create rpi-buildroot-dl"
+	
