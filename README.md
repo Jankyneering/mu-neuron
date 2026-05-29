@@ -1,5 +1,18 @@
 # µNeuron
 
+```txt
+
+              M"""""""`YM                                                           
+              M  mmmm.  M                                                           
+     _/    _/ M  MMMMM  M .d8888b. dP    dP 88d888b. .d8888b. 88d888b.              
+    _/    _/  M  MMMMM  M 88ooood8 88    88 88'  `88 88'  `88 88'  `88              
+   _/    _/   M  MMMMM  M 88.  ... 88.  .88 88       88.  .88 88    88              
+  _/_/_/_/    M  MMMMM  M `88888P' `88888P' dP       `88888P' dP    dP              
+ _/           MMMMMMMMMMM                                                           
+_/                                                                                  
+
+```
+
 A light OS for SDR base stations and hotspots.
 
 ## Building
@@ -31,26 +44,20 @@ docker run --rm -it \
 ### Day to day commands
 
 ```zsh
-# Incremental build (after changing a defconfig or package)
+# Incremental build for specific targets (after changing a defconfig or package)
 docker run --rm -it \
     -v $(pwd):/work \
     -v rpi-buildroot-output:/work/output \
     -w /work \
     rpi-buildroot make build-rpi4
 
-# Re-merge and re-image after any build change
+# Copy images to host for flashing
 docker run --rm -it \
     -v $(pwd):/work \
     -v rpi-buildroot-output:/work/output \
+    -v rpi-buildroot-dl:/work/dl \
     -w /work \
-    rpi-buildroot make merge-boot final-image
-
-# Copy the final image to your Mac
-docker run --rm \
-    -v $(pwd):/work \
-    -v rpi-buildroot-output:/work/output \
-    -w /work \
-    rpi-buildroot cp /work/output/universal/sdcard.img /work/sdcard.img
+    rpi-buildroot make copy-images;
 
 # Flash it
 sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
