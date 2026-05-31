@@ -1,0 +1,11 @@
+config BR2_PACKAGE_MU_CELL_BB_DTS
+    bool "mu-cell-bb-dts"
+    help
+      Compiles and installs the Device Tree overlay for the µCell BB
+      HAT into /boot/overlays/mu-cell-bb_raspberrypi.dtbo.
+
+      The RPi bootloader loads this overlay either because config.txt
+      contains  dtoverlay=mu-cell-bb_raspberrypi  or because the HAT
+      EEPROM's dt_blob field names it (automatic HAT detection).
+
+      Source: https://github.com/Jankyneering/mu-cell-bb-drivers

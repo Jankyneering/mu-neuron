@@ -1,0 +1,11 @@
+SOAPY_MU_CELL_VERSION     = main
+SOAPY_MU_CELL_SITE        = https://github.com/Jankyneering/mu-cell-bb-drivers
+SOAPY_MU_CELL_SITE_METHOD = git
+SOAPY_MU_CELL_GIT_SUBMODULES = NO
+SOAPY_MU_CELL_SUBDIR      = SoapyMuCell
+SOAPY_MU_CELL_LICENSE     = MIT
+SOAPY_MU_CELL_LICENSE_FILES = LICENSE
+SOAPY_MU_CELL_DEPENDENCIES = soapysdr openssl
+SOAPY_MU_CELL_CONF_OPTS   = -DINSTALL_PIPEWIRE_CONF=OFF
+
+$(eval $(cmake-package))

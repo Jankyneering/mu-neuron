@@ -57,7 +57,7 @@ OVERLAYS_zero2w := miniuart-bt
 OVERLAYS_cm4    := miniuart-bt
 
 # Custom overlays applied to ALL boards (e.g. a HAT present on every device)
-OVERLAYS_COMMON :=   # e.g. my-hat my-sensor
+OVERLAYS_COMMON := mu-cell-bb_raspberrypi
 
 # Shared download cache — source tarballs downloaded once, reused across all targets.
 # Mount as a separate Docker volume so clean-all never wipes it:

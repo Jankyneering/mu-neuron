@@ -1,0 +1,15 @@
+config BR2_PACKAGE_SOAPY_MU_CELL
+    bool "soapy-mu-cell"
+    depends on BR2_PACKAGE_SOAPY_SDR
+    depends on BR2_PACKAGE_OPENSSL
+    depends on BR2_INSTALL_LIBSTDCPP
+    depends on BR2_TOOLCHAIN_HAS_THREADS
+    select BR2_PACKAGE_OPENSSL
+    help
+      SoapySDR driver plugin for the µCell BB HAT (SX1255-based
+      baseband board). Builds the SoapyMuCell shared module and
+      installs it into SoapySDR's module search path so that
+      SoapySDRUtil --find and Python/C++ SoapySDR bindings can
+      discover the µCell device at runtime.
+
+      Source: https://github.com/Jankyneering/mu-cell-bb-drivers
