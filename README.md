@@ -17,7 +17,9 @@ A light OS for SDR base stations and hotspots.
 
 ## Building
 
-### From a fresh clone
+### With Docker (recommended for macOS and Windows)
+
+#### From a fresh clone
 
 ```zsh
 # 1. Clone with submodules
@@ -41,7 +43,7 @@ docker run --rm -it \
     rpi-buildroot make all
 ```
 
-### Day to day commands
+#### Day to day commands
 
 ```zsh
 # Incremental build for specific targets (after changing a defconfig or package)
@@ -59,11 +61,19 @@ docker run --rm -it \
     -w /work \
     rpi-buildroot make copy-images;
 
+# Build a specific driver (e.g. SoapyMuCell) for testing
+$ docker run --rm -it \
+    -v $(pwd):/work \
+    -v rpi-buildroot-output:/work/output \
+    -v rpi-buildroot-dl:/work/dl \
+    -w /work \
+    rpi-buildroot bash -c "make -C buildroot O=/work/output/rpi3 BR2_EXTERNAL=/work soapy-mu-cell";
+
 # Flash it
 sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-### Shell alias
+#### Shell alias
 
 ```zsh
 # Create alias (or add to .zshrc/.bashrc)
