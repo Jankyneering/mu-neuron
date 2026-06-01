@@ -13,5 +13,5 @@ dtoverlay=miniuart-bt
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 enable_uart=1
-# µCell BB HAT overlay — explicit fallback for un-programmed EEPROMs
+dtparam=spi=on
 dtoverlay=mu-cell-bb_raspberrypi
