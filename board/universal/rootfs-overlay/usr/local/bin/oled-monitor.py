@@ -188,11 +188,10 @@ def draw_halt_page(draw):
     draw.text((19, 44), 'Press to select', font=font, fill="white")
 
 def draw_halt_confirm_page(draw, seconds_left):
-    draw.rectangle([(0, 0), (127, 63)], fill="black", outline="white")
-    draw.text((4, 8), '!! HALT SYSTEM !!', font=font, fill="white")
-    draw.text((4, 26), 'Press again to halt', font=font, fill="white")
-    draw.text((4, 40), 'Rotate to cancel', font=font, fill="white")
-    draw.text((4, 54), 'Timeout: ' + str(seconds_left) + 's', font=font, fill="white")
+    draw_header(draw, "!! HALT !!")
+    draw.text((4, 22), 'Press again to halt', font=font, fill="white")
+    draw.text((4, 36), 'Rotate to cancel', font=font, fill="white")
+    draw.text((4, 50), 'Timeout: ' + str(seconds_left) + 's', font=font, fill="white")
 
 def halt_system():
     print("Halting system by user request", flush=True)
