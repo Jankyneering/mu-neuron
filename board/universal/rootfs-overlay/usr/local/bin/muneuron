@@ -41,7 +41,8 @@ error() { printf '%s[ERROR]%s %s\n' "$RED" "$NC" "$*" >&2; }
 prompt_yes_no() {
     prompt="$1" reply=""
     ( exec 3</dev/tty ) 2>/dev/null || return 1
-    read -r -p "$prompt" reply </dev/tty || return 1
+    printf '%s' "$prompt"
+    read -r reply </dev/tty || return 1
     case "$reply" in
         [yY]|[yY][eE][sS]) return 0 ;;
         *)                 return 1 ;;
@@ -151,7 +152,6 @@ cmd_timezone() {
         printf 'Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n'
         printf 'Enter a timezone (e.g. Europe/Paris): '
         read -r tz
-    fi
 
     if [ -z "$tz" ]; then
         error "No timezone given. Usage: muneuron timezone <Area/City>"
