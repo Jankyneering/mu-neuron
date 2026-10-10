@@ -80,7 +80,7 @@ EOF
 ensure_clock_synced() {
     year=$(date +%Y)
     case "$year" in
-        20[3-9]*) return 0 ;;
+        20[2-9]*) return 0 ;;
     esac
 
     warn "System clock looks wrong ($(date)). Attempting one-shot NTP sync..."
@@ -95,7 +95,7 @@ ensure_clock_synced() {
     while [ $i -lt 30 ]; do
         year=$(date +%Y)
         case "$year" in
-            20[3-9]*)
+            20[2-9]*)
                 kill "$ntpd_pid" 2>/dev/null
                 info "Clock synced: $(date)"
                 return 0
@@ -153,6 +153,26 @@ cmd_quickstart() {
         cmd_timezone || true
     fi
 
+    if on_muneuron; then
+        info "µNeuron image detected: the µCell driver and device tree overlay"
+        info "are built into the image. Verifying the installation instead of"
+        info "running the Raspberry Pi OS installer (no apt on µNeuron)."
+        if overlay_installed; then
+            info "Device tree overlay: installed"
+        else
+            warn "Device tree overlay not found on the boot partition."
+        fi
+        if driver_registered; then
+            info "SoapyMuCell: registered with SoapySDR"
+        else
+            warn "SoapyMuCell is not registered with SoapySDR."
+            warn "Rebuild and re-flash the image with BR2_PACKAGE_SOAPY_MU_CELL=y."
+        fi
+        cmd_probe && info "Quickstart complete. The board is ready to use." \
+            || warn "Probe failed. Is the µCell board seated? Run 'muneuron status'."
+        return 0
+    fi
+
     run_install_script "quickstart" "$@"
     rc=$?
     if [ $rc -eq 0 ]; then
@@ -165,6 +185,14 @@ cmd_quickstart() {
 
 cmd_update() {
     info "µNeuron µCell update"
+    if on_muneuron; then
+        info "µNeuron image detected: the µCell driver and overlay are part of"
+        info "the image. Update by building and flashing a newer µNeuron image:"
+        info "  https://github.com/Jankyneering/mu-neuron"
+        info "Verifying the currently installed driver:"
+        cmd_probe || warn "Probe failed. Run 'muneuron status' for details."
+        return 0
+    fi
     info "This updates the driver, overlay, and system dependencies."
     run_install_script "update" "$@"
     rc=$?
@@ -172,6 +200,10 @@ cmd_update() {
         info "Update complete."
     fi
     return $rc
+}
+
+on_muneuron() {
+    grep -q 'ID=muneuron' /etc/os-release 2>/dev/null
 }
 
 ZONEINFO=/usr/share/zoneinfo
