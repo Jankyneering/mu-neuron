@@ -16,19 +16,18 @@ env:
 
 jobs:
   # ============================================================================
-  # Build each target in a separate parallel job
-  # Each runner has ~14GB free — one target at a time fits comfortably
+  # Build each SoC-family target in a separate parallel job.
+  # rpi3 is the priority target — it must succeed for a release.
+  # Each runner has ~14GB free — one target at a time fits comfortably.
   # ============================================================================
   build-target:
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6 hours per target
-
     strategy:
       fail-fast: false  # Don't cancel other targets if one fails
       matrix:
-        target: [rpi3, rpi4, rpi5, zero2w, cm4, cm5]
-
+        target: [rpi3, rpi4, rpi5]
     steps:
       - name: Free up disk space
         # GitHub runners have ~25GB total, ~14GB free. Buildroot needs ~15-20GB.
@@ -130,15 +129,25 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # Create GitHub release and attach one SD card image per board
+  # Gate: the rpi3 (priority) image must exist before releasing
+  # ============================================================================
+  require-rpi3:
+    name: rpi3 image required
+    runs-on: ubuntu-latest
+    needs: build-target
+    steps:
+      - name: Check rpi3 artifact exists
+        run: echo "rpi3 image built successfully"
+
+  # ============================================================================
+  # Create GitHub release and attach one SD card image per SoC family
   # ============================================================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: build-target
+    needs: [build-target, require-rpi3]
     permissions:
       contents: write  # Required to create releases
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -154,7 +163,7 @@ jobs:
       - name: Compress and rename images
         run: |
           mkdir -p release-assets
-          for target in rpi3 rpi4 rpi5 zero2w cm4 cm5; do
+          for target in rpi3 rpi4 rpi5; do
             src="images-${target}/sdcard-resolved.img"
             if [ ! -f "$src" ]; then
               echo "ERROR: $src not found"; ls -la images-${target}/ 2>/dev/null || true; exit 1
@@ -177,18 +186,16 @@ jobs:
           body: |
             ## mu-neuron ${{ github.ref_name }}
 
-            ### Per-board SD card images
+            ### SD card images (one per SoC family)
 
-            | File | Board |
-            |------|-------|
-            | `sdcard-rpi3-${{ github.ref_name }}.img.gz` | Raspberry Pi 3B / 3B+ / CM3 |
-            | `sdcard-rpi4-${{ github.ref_name }}.img.gz` | Raspberry Pi 4B / 400 |
-            | `sdcard-rpi5-${{ github.ref_name }}.img.gz` | Raspberry Pi 5B |
-            | `sdcard-zero2w-${{ github.ref_name }}.img.gz` | Raspberry Pi Zero 2W |
-            | `sdcard-cm4-${{ github.ref_name }}.img.gz` | Compute Module 4 |
-            | `sdcard-cm5-${{ github.ref_name }}.img.gz` | Compute Module 5 |
+            | File | Boards |
+            |------|--------|
+            | `sdcard-rpi3-${{ github.ref_name }}.img.gz` | Raspberry Pi 3B / 3B+ / Zero 2W / CM3 |
+            | `sdcard-rpi4-${{ github.ref_name }}.img.gz` | Raspberry Pi 4B / 400 / CM4 / CM4s |
+            | `sdcard-rpi5-${{ github.ref_name }}.img.gz` | Raspberry Pi 5 / 500 / CM5 |
 
             ### Flash instructions
+
             ```bash
             # Decompress and flash in one step (replace <target> and /dev/sdX)
             gunzip -c sdcard-<target>-${{ github.ref_name }}.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
