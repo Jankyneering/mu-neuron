@@ -9,8 +9,10 @@
 # Usage: muneuron <command> [options]
 #
 # Commands:
-#   quickstart   Install the µCell drivers and dependencies (first run)
+#   quickstart   Install the µCell drivers and dependencies (first run),
+#                optionally setting the timezone
 #   update       Update the µCell drivers and dependencies
+#   timezone     Set the system timezone (interactive or TZ name argument)
 #   probe        Probe the µCell driver via SoapySDRUtil
 #   status       Show board/driver detection state
 #   version      Show µNeuron version
@@ -34,6 +36,18 @@ info()  { printf '%s[INFO]%s  %s\n' "$GREEN" "$NC" "$*"; }
 warn()  { printf '%s[WARN]%s  %s\n' "$YELLOW" "$NC" "$*"; }
 error() { printf '%s[ERROR]%s %s\n' "$RED" "$NC" "$*" >&2; }
 
+# Ask a yes/no question on the controlling terminal. Returns 1 when there
+# is no terminal, so piping the script still works.
+prompt_yes_no() {
+    prompt="$1" reply=""
+    ( exec 3</dev/tty ) 2>/dev/null || return 1
+    read -r -p "$prompt" reply </dev/tty || return 1
+    case "$reply" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+        *)                 return 1 ;;
+    esac
+}
+
 usage() {
     cat <<EOF
 Usage: muneuron <command> [options]
@@ -41,8 +55,10 @@ Usage: muneuron <command> [options]
 Manage the µCell BB driver suite (device tree overlay + SoapyMuCell driver).
 
 Commands:
-  quickstart   Install the µCell drivers and dependencies (first run)
+  quickstart   Install the µCell drivers and dependencies (first run),
+               optionally setting the timezone
   update        Update the µCell drivers and dependencies
+  timezone      Set the system timezone (interactive or TZ name argument)
   probe         Probe the µCell driver via SoapySDRUtil
   status        Show board/driver detection state
   version       Show µNeuron version
@@ -96,6 +112,11 @@ run_install_script() {
 cmd_quickstart() {
     info "µNeuron µCell quickstart"
     info "This installs the µCell BB device tree overlay and SoapyMuCell driver."
+
+    if prompt_yes_no "Set the timezone before installing? [y/N] "; then
+        cmd_timezone || true
+    fi
+
     run_install_script "quickstart" "$@"
     rc=$?
     if [ $rc -eq 0 ]; then
@@ -115,6 +136,44 @@ cmd_update() {
         info "Update complete."
     fi
     return $rc
+}
+
+ZONEINFO=/usr/share/zoneinfo
+
+cmd_timezone() {
+    tz="${1:-}"
+
+    if [ -z "$tz" ] && [ -t 0 ] && [ -t 1 ]; then
+        current="UTC"
+        [ -r /etc/TZ ] && current="$(cat /etc/TZ 2>/dev/null || echo UTC)"
+        printf 'Current timezone: %s\n' "$current"
+        printf 'Common zones: Europe/Paris Europe/London America/New_York Asia/Tokyo\n'
+        printf 'Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n'
+        printf 'Enter a timezone (e.g. Europe/Paris): '
+        read -r tz
+    fi
+
+    if [ -z "$tz" ]; then
+        error "No timezone given. Usage: muneuron timezone <Area/City>"
+        return 1
+    fi
+
+    if [ ! -f "$ZONEINFO/$tz" ]; then
+        error "Unknown timezone: $tz (no file at $ZONEINFO/$tz)"
+        error "Is the tzdata package installed? List zones with:"
+        error "  ls /usr/share/zoneinfo"
+        return 1
+    fi
+
+    if ! ln -snf "$ZONEINFO/$tz" /etc/localtime \
+        || ! echo "$tz" > /etc/TZ \
+        || ! echo "$tz" > /etc/timezone; then
+        error "Could not write timezone configuration."
+        return 1
+    fi
+
+    info "Timezone set to $tz ($(date))"
+    return 0
 }
 
 cmd_probe() {
@@ -171,6 +230,7 @@ main() {
     case "$command" in
         quickstart) cmd_quickstart "$@" ;;
         update)     cmd_update "$@" ;;
+        timezone)    cmd_timezone "$@" ;;
         probe)       cmd_probe "$@" ;;
         status)      cmd_status "$@" ;;
         version|-v)  cmd_version "$@" ;;
