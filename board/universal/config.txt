@@ -16,6 +16,8 @@ dtoverlay=miniuart-bt
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 enable_uart=1
+dtparam=spi=on
+dtoverlay=mu-cell-bb_raspberrypi
 
 # Per-SoC-family kernel selection for the universal multi-board image.
 # Per-board builds ignore these sections (they ship a single kernel=Image

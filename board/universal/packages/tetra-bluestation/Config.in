@@ -1,0 +1,7 @@
+config BR2_PACKAGE_TETRA_BLUESTATION
+	bool "tetra-bluestation"
+	help
+	  Prebuilt bluestation-bs binary from the tetra-bluestation
+	  releases (TETRA base station software for the µCell BB).
+
+	  https://github.com/MidnightBlueLabs/tetra-bluestation

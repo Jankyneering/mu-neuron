@@ -3,3 +3,9 @@
 # i2c-dev:     exposes /dev/i2c-N to userspace (required by smbus2/luma)
 i2c-bcm2835
 i2c-dev
+# snd-soc-spdif-rx/tx: dummy SPDIF codecs used by the µCell BB "SX1255"
+# simple-audio-card. They are built as modules (=m) and there is no udev on
+# µNeuron (static device table), so nothing autoloads them. Without them the
+# card probe defers forever ("asoc-simple-card: parse error").
+snd-soc-spdif-rx
+snd-soc-spdif-tx

@@ -1,0 +1,327 @@
+#!/bin/sh
+# muneuron — µNeuron user-facing utility.
+#
+# Installs, updates, and verifies the µCell BB driver suite (device tree
+# overlay + SoapyMuCell SoapySDR driver) by delegating to the upstream
+# install script from Jankyneering/mu-cell, so both Raspberry Pi OS and
+# µNeuron systems follow the same procedure.
+#
+# Usage: muneuron <command> [options]
+#
+# Commands:
+#   quickstart   Install the µCell drivers and dependencies (first run),
+#                optionally setting the timezone
+#   update       Update the µCell drivers and dependencies
+#   timezone     Set the system timezone (interactive or TZ name argument)
+#   probe        Probe the µCell driver via SoapySDRUtil
+#   status       Show board/driver detection state
+#   version      Show µNeuron version
+#   help         Show this message
+
+set -u
+
+REPO_URL="${MUCELL_REPO_URL:-https://github.com/Jankyneering/mu-cell}"
+INSTALL_SCRIPT_URL="${MUCELL_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/Jankyneering/mu-cell/main/install-mu-cell-sw.sh}"
+INSTALL_SCRIPT="${MUCELL_INSTALL_SCRIPT:-$HOME/.muneuron/install-mu-cell-sw.sh}"
+OVERLAY_NAME="mu-cell-bb_raspberrypi"
+DOCS_URL="https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide.md"
+
+RED=""; GREEN=""; YELLOW=""; NC=""
+if [ -t 1 ]; then
+    RED="[0;31m"; GREEN="[0;32m"; YELLOW="[1;33m"
+    NC="[0m"
+fi
+
+info()  { printf '%s[INFO]%s  %s\n' "$GREEN" "$NC" "$*"; }
+warn()  { printf '%s[WARN]%s  %s\n' "$YELLOW" "$NC" "$*"; }
+error() { printf '%s[ERROR]%s %s\n' "$RED" "$NC" "$*" >&2; }
+
+# Ask a yes/no question on the controlling terminal. Returns 1 when there
+# is no terminal, so piping the script still works.
+prompt_yes_no() {
+    prompt="$1" reply=""
+    ( exec 3</dev/tty ) 2>/dev/null || return 1
+    printf '%s' "$prompt"
+    read -r reply </dev/tty || return 1
+    case "$reply" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+        *)                 return 1 ;;
+    esac
+}
+
+usage() {
+    cat <<EOF
+Usage: muneuron <command> [options]
+
+Manage the µCell BB driver suite (device tree overlay + SoapyMuCell driver).
+
+Commands:
+  quickstart   Install the µCell drivers and dependencies (first run),
+               optionally setting the timezone
+  update        Update the µCell drivers and dependencies
+  timezone      Set the system timezone (interactive or TZ name argument)
+  probe         Probe the µCell driver via SoapySDRUtil
+  status        Show board/driver detection state
+  version       Show µNeuron version
+  help          Show this message
+
+Options are passed through to the upstream installer (e.g. --force,
+--no-reboot). See $DOCS_URL
+
+Environment:
+  MUCELL_INSTALL_SCRIPT_URL   Fetch the installer from elsewhere
+  MUCELL_INSTALL_SCRIPT       Use an already-downloaded installer
+  MUCELL_REPO_URL             Driver repository URL
+EOF
+}
+
+# One-shot NTP sync when the clock is obviously wrong (e.g. epoch after
+# boot without a working RTC). TLS certificate validation fails otherwise.
+ensure_clock_synced() {
+    year=$(date +%Y)
+    case "$year" in
+        20[2-9]*) return 0 ;;
+    esac
+
+    warn "System clock looks wrong ($(date)). Attempting one-shot NTP sync..."
+    if ! command -v ntpd >/dev/null 2>&1; then
+        warn "ntpd not found; cannot sync the clock automatically."
+        return 1
+    fi
+
+    ntpd -q -N -p 0.pool.ntp.org -p 1.pool.ntp.org &
+    ntpd_pid=$!
+    i=0
+    while [ $i -lt 30 ]; do
+        year=$(date +%Y)
+        case "$year" in
+            20[2-9]*)
+                kill "$ntpd_pid" 2>/dev/null
+                info "Clock synced: $(date)"
+                return 0
+                ;;
+        esac
+        i=$((i + 1))
+        sleep 1
+    done
+    kill "$ntpd_pid" 2>/dev/null
+    warn "NTP sync timed out. HTTPS may fail until the clock is correct."
+    return 1
+}
+
+fetch_install_script() {
+    if [ -f "$INSTALL_SCRIPT" ]; then
+        info "Using cached installer: $INSTALL_SCRIPT"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$INSTALL_SCRIPT")"
+
+    if command -v curl >/dev/null 2>&1; then
+        info "Fetching installer with curl..."
+        curl -fsSL "$INSTALL_SCRIPT_URL" -o "$INSTALL_SCRIPT"
+    elif command -v wget >/dev/null 2>&1; then
+        info "Fetching installer with wget..."
+        wget -qO "$INSTALL_SCRIPT" "$INSTALL_SCRIPT_URL"
+    else
+        error "Neither curl nor wget is available to fetch the installer."
+        error "Download it manually, then set MUCELL_INSTALL_SCRIPT=<path>."
+        return 1
+    fi
+}
+
+run_install_script() {
+    action="$1"; shift
+
+    ensure_clock_synced || true
+    fetch_install_script || return 1
+
+    info "Running installer ($action)..."
+    if ! command -v bash >/dev/null 2>&1; then
+        error "bash is required by the installer and was not found."
+        return 1
+    fi
+    bash "$INSTALL_SCRIPT" "$@"
+    return $?
+}
+
+cmd_quickstart() {
+    info "µNeuron µCell quickstart"
+    info "This installs the µCell BB device tree overlay and SoapyMuCell driver."
+
+    if prompt_yes_no "Set the timezone before installing? [y/N] "; then
+        cmd_timezone || true
+    fi
+
+    if on_muneuron; then
+        info "µNeuron image detected: the µCell driver and device tree overlay"
+        info "are built into the image. Verifying the installation instead of"
+        info "running the Raspberry Pi OS installer (no apt on µNeuron)."
+        if overlay_installed; then
+            info "Device tree overlay: installed"
+        else
+            warn "Device tree overlay not found on the boot partition."
+        fi
+        if driver_registered; then
+            info "SoapyMuCell: registered with SoapySDR"
+        else
+            warn "SoapyMuCell is not registered with SoapySDR."
+            warn "Rebuild and re-flash the image with BR2_PACKAGE_SOAPY_MU_CELL=y."
+        fi
+        cmd_probe && info "Quickstart complete. The board is ready to use." \
+            || warn "Probe failed. Is the µCell board seated? Run 'muneuron status'."
+        return 0
+    fi
+
+    run_install_script "quickstart" "$@"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        info "Quickstart complete."
+        info "If this was the first install, reboot so the overlay loads,"
+        info "then run 'muneuron probe' to verify the driver."
+    fi
+    return $rc
+}
+
+cmd_update() {
+    info "µNeuron µCell update"
+    if on_muneuron; then
+        info "µNeuron image detected: the µCell driver and overlay are part of"
+        info "the image. Update by building and flashing a newer µNeuron image:"
+        info "  https://github.com/Jankyneering/mu-neuron"
+        info "Verifying the currently installed driver:"
+        cmd_probe || warn "Probe failed. Run 'muneuron status' for details."
+        return 0
+    fi
+    info "This updates the driver, overlay, and system dependencies."
+    run_install_script "update" "$@"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        info "Update complete."
+    fi
+    return $rc
+}
+
+on_muneuron() {
+    grep -q 'ID=muneuron' /etc/os-release 2>/dev/null
+}
+
+ZONEINFO=/usr/share/zoneinfo
+
+cmd_timezone() {
+    tz="${1:-}"
+
+    if [ -z "$tz" ] && [ -t 0 ] && [ -t 1 ]; then
+        current="UTC"
+        [ -r /etc/TZ ] && current="$(cat /etc/TZ 2>/dev/null || echo UTC)"
+        printf 'Current timezone: %s\n' "$current"
+        printf 'Common zones: Europe/Paris Europe/London America/New_York Asia/Tokyo\n'
+        printf 'Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n'
+        printf 'Enter a timezone (e.g. Europe/Paris): '
+        read -r tz
+        tz=$(printf "%s" "$tz" | tr -d " \t\r\n")
+    fi
+
+    if [ -z "$tz" ]; then
+        error "No timezone given. Usage: muneuron timezone <Area/City>"
+        return 1
+    fi
+
+    if [ ! -f "$ZONEINFO/$tz" ]; then
+        error "Unknown timezone: $tz (no file at $ZONEINFO/$tz)"
+        error "Is the tzdata package installed? List zones with:"
+        error "  ls /usr/share/zoneinfo"
+        return 1
+    fi
+
+    if ! ln -snf "$ZONEINFO/$tz" /etc/localtime \
+        || ! echo "$tz" > /etc/TZ \
+        || ! echo "$tz" > /etc/timezone; then
+        error "Could not write timezone configuration."
+        return 1
+    fi
+
+    info "Timezone set to $tz ($(date))"
+    return 0
+}
+
+cmd_probe() {
+    info "Probing µCell driver..."
+    if ! command -v SoapySDRUtil >/dev/null 2>&1; then
+        error "SoapySDRUtil not found."
+        error "Run 'muneuron quickstart' to install the driver suite."
+        return 1
+    fi
+    exec SoapySDRUtil --probe=driver=mucell
+}
+
+overlay_installed() {
+    [ -f "/boot/firmware/overlays/${OVERLAY_NAME}.dtbo" ] \
+        || [ -f "/boot/overlays/${OVERLAY_NAME}.dtbo" ]
+}
+
+driver_registered() {
+    command -v SoapySDRUtil >/dev/null 2>&1 || return 1
+    SoapySDRUtil --info 2>/dev/null | grep -qi "mucell"
+}
+
+hat_detected() {
+    [ -d /proc/device-tree/hat ]
+}
+
+cmd_status() {
+    printf '%s\n' "µNeuron µCell status"
+    printf '  HAT EEPROM detected:    %s\n' "$(hat_detected && echo yes || echo no)"
+    printf '  DT overlay installed:   %s\n' "$(overlay_installed && echo yes || echo no)"
+    printf '  SoapyMuCell registered: %s\n' "$(driver_registered && echo yes || echo no)"
+    printf '  Driver repo checkout:   %s\n' "${MUCELL_INSTALL_DIR:-$HOME/mu-cell-bb-drivers}"
+    if command -v bluestation-bs >/dev/null 2>&1; then
+        printf '  bluestation-bs:          installed (%s)\n' "$(command -v bluestation-bs)"
+    else
+        printf '  bluestation-bs:          not installed\n'
+    fi
+    printf '  System time:            %s\n' "$(date)"
+    if pid=$(pidof ntpd 2>/dev/null || pgrep ntpd 2>/dev/null); then
+        printf '  ntpd:                   running (pid %s)\n' "$pid"
+    else
+        printf '  ntpd:                   not running\n'
+        warn "Clock may be unsynchronised. Check: /etc/init.d/S45ntpd start"
+    fi
+    if ! hat_detected; then
+        warn "No HAT EEPROM. Check the board is seated and the Pi has rebooted."
+    fi
+}
+
+cmd_version() {
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        echo "µNeuron ${VERSION_ID:-${VERSION:-unknown}}"
+    else
+        echo "µNeuron [unknown]"
+    fi
+}
+
+main() {
+    if [ $# -eq 0 ]; then
+        usage >&2
+        exit 1
+    fi
+
+    command="$1"; shift
+    case "$command" in
+        quickstart) cmd_quickstart "$@" ;;
+        update)     cmd_update "$@" ;;
+        timezone)    cmd_timezone "$@" ;;
+        probe)       cmd_probe "$@" ;;
+        status)      cmd_status "$@" ;;
+        version|-v)  cmd_version "$@" ;;
+        help|-h)     usage ;;
+        *)
+            error "Unknown command: $command"
+            usage >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

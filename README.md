@@ -1,5 +1,18 @@
 # µNeuron
 
+```txt
+
+              M"""""""`YM                                                           
+              M  mmmm.  M                                                           
+     _/    _/ M  MMMMM  M .d8888b. dP    dP 88d888b. .d8888b. 88d888b.              
+    _/    _/  M  MMMMM  M 88ooood8 88    88 88'  `88 88'  `88 88'  `88              
+   _/    _/   M  MMMMM  M 88.  ... 88.  .88 88       88.  .88 88    88              
+  _/_/_/_/    M  MMMMM  M `88888P' `88888P' dP       `88888P' dP    dP              
+ _/           MMMMMMMMMMM                                                           
+_/                                                                                  
+
+```
+
 A light OS for SDR base stations and hotspots.
 
 **Priority target: Raspberry Pi 3 (3B / 3B+).** A plain `make` produces a
@@ -16,7 +29,9 @@ still available via `make universal`.
 
 ## Building
 
-### From a fresh clone
+### With Docker (recommended for macOS and Windows)
+
+#### From a fresh clone
 
 ```zsh
 # 1. Clone with submodules
@@ -45,7 +60,7 @@ The image lands at `output/rpi3/images/sdcard.img`.
 ### Day to day commands
 
 ```zsh
-# Incremental build (after changing a defconfig or package)
+# Incremental build for specific targets (after changing a defconfig or package)
 docker run --rm -it \
     -v $(pwd):/work \
     -v rpi-buildroot-output:/work/output \
@@ -56,6 +71,7 @@ docker run --rm -it \
 docker run --rm -it \
     -v $(pwd):/work \
     -v rpi-buildroot-output:/work/output \
+    -v rpi-buildroot-dl:/work/dl \
     -w /work \
     rpi-buildroot make build-rpi4
 
@@ -66,18 +82,28 @@ docker run --rm -it \
     -w /work \
     rpi-buildroot make universal
 
-# Copy the final image to your Mac
+# Build a specific driver (e.g. SoapyMuCell) for testing
+docker run --rm -it \
+    -v $(pwd):/work \
+    -v rpi-buildroot-output:/work/output \
+    -v rpi-buildroot-dl:/work/dl \
+    -w /work \
+    rpi-buildroot bash -c "make -C buildroot O=/work/output/rpi3 BR2_EXTERNAL=/work soapy-mu-cell"
+
+# Copy images to host for flashing
 docker run --rm \
     -v $(pwd):/work \
     -v rpi-buildroot-output:/work/output \
     -w /work \
     rpi-buildroot cp /work/output/rpi3/images/sdcard.img /work/sdcard.img
 
+
+
 # Flash it
 sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-### Shell alias
+#### Shell alias
 
 ```zsh
 # Create alias (or add to .zshrc/.bashrc)
@@ -107,6 +133,30 @@ future Pi that reuses BCM2711):
 
 The RPi bootloader picks the right DTB from the boot partition automatically
 based on the board model — no other changes needed.
+
+## The `muneuron` utility
+
+Every µNeuron image ships a `muneuron` command that manages the µCell BB
+driver suite. On a µNeuron image the driver and device tree overlay are
+already built in; on a stock Raspberry Pi OS card the same command installs
+them by delegating to the upstream
+[install script](https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide.md).
+
+```zsh
+muneuron quickstart   # install the µCell drivers and dependencies
+muneuron update       # update drivers and dependencies
+muneuron probe        # probe the driver (SoapySDRUtil --probe=driver=mucell)
+muneuron status       # show board/driver detection state
+muneuron version      # show the running µNeuron version
+```
+
+On plain Raspberry Pi OS (no µNeuron image), the equivalent one-liner from the
+[quick start guide](https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide.md)
+performs the same install:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Jankyneering/mu-cell/main/install-mu-cell-sw.sh)"
+```
 
 ## Acknowledgements & License
 

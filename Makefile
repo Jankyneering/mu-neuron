@@ -58,7 +58,7 @@ OVERLAYS_rpi4 := miniuart-bt
 OVERLAYS_rpi5 := miniuart-bt
 
 # Custom overlays applied to ALL boards (e.g. a HAT present on every device)
-OVERLAYS_COMMON :=   # e.g. my-hat my-sensor
+OVERLAYS_COMMON := mu-cell-bb_raspberrypi
 
 # Shared download cache — source tarballs downloaded once, reused across all targets.
 # Mount as a separate Docker volume so clean-all never wipes it:
@@ -94,6 +94,44 @@ build: build-$(TARGET)
 
 # Full multi-board flow: build every SoC family, merge, assemble universal image.
 universal: final-image
+
+# =============================================================================
+# Update check
+# =============================================================================
+# Compare pinned third-party package versions against their upstream latest.
+# No changes are made; this only reports what is available.
+TETRA_BLUESTATION_MK := $(BOARD_DIR)/packages/tetra-bluestation/tetra-bluestation.mk
+SOAPY_MU_CELL_MK := $(BOARD_DIR)/packages/soapy-mu-cell/soapy-mu-cell.mk
+MU_CELL_BB_DTS_MK := $(BOARD_DIR)/packages/mu-cell-bb-dts/mu-cell-bb-dts.mk
+
+check-updates:
+	@echo ">>> Checking pinned package versions against upstream..."
+	@current=$$(grep -m1 '^TETRA_BLUESTATION_VERSION' $(TETRA_BLUESTATION_MK) | cut -d' ' -f3); \
+	latest=$$(curl -sfL -H 'Accept: application/vnd.github+json' \
+		https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest \
+		| grep -m1 '"tag_name"' | cut -d'"' -f4); \
+	if [ -z "$$latest" ]; then \
+		echo "  tetra-bluestation: could not reach GitHub API"; \
+	elif [ "$$current" = "$$latest" ]; then \
+		echo "  tetra-bluestation: up-to-date ($$current)"; \
+	else \
+		echo "  tetra-bluestation: $$current -> available: $$latest"; \
+		echo "    bump TETRA_BLUESTATION_VERSION in $(TETRA_BLUESTATION_MK)"; \
+		echo "    and update the sha256 in tetra-bluestation.hash"; \
+	fi
+	@current=$$(grep -m1 '^SOAPY_MU_CELL_VERSION' $(SOAPY_MU_CELL_MK) | cut -d' ' -f3); \
+	latest=$$(curl -sfL -H 'Accept: application/vnd.github+json' \
+		https://api.github.com/repos/Jankyneering/mu-cell-bb-drivers/tags \
+		| grep -m1 '"name"' | cut -d'"' -f4); \
+	if [ -z "$$latest" ]; then \
+		echo "  mu-cell-bb-drivers: could not reach GitHub API"; \
+	elif [ "$$current" = "$$latest" ]; then \
+		echo "  mu-cell-bb-drivers: up-to-date ($$current)"; \
+	else \
+		echo "  mu-cell-bb-drivers: $$current -> available: $$latest"; \
+		echo "    bump SOAPY_MU_CELL_VERSION in $(SOAPY_MU_CELL_MK)"; \
+		echo "    and MU_CELL_BB_DTS_VERSION in $(MU_CELL_BB_DTS_MK) (keep in sync)"; \
+	fi
 
 help:
 	@echo ""

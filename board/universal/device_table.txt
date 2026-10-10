@@ -8,4 +8,10 @@
 /etc/init.d/S90oled-monitor	f	755	0	0	-	-	-	-	-
 /boot	d	755	0	0	-	-	-	-	-
 /etc/init.d/S02fstab	f	755	0	0	-	-	-	-	-
-/etc/init.d/S05modules	f	755	0	0	-	-	-	-	-
+/etc/init.d/S05modules	f	755	0	0	-	-	-	-
+/usr/local/bin/muneuron	f	755	0	0	-	-	-	-	-
+/etc/zshenv	f	644	0	0	-	-	-	-
+/etc/profile.d	d	755	0	0	-	-	-	-
+/etc/profile.d/path.sh	f	755	0	0	-	-	-	-
+/etc/init.d/S45ntpd	f	755	0	0	-	-	-	-
+/usr/local/bin/bluestation-bs	f	755	0	0	-	-	-	-

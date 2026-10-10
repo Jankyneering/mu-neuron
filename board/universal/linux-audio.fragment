@@ -1,0 +1,16 @@
+# Kernel config fragment for the µCell BB audio path.
+# The µCell DTS overlay registers a simple-audio-card named "SX1255" on the
+# BCM283x/BCM271x I2S interface, using spdif-dir/spdif-dit dummy codecs.
+# SoapyMuCell opens this ALSA card to stream IQ samples.
+CONFIG_SOUND=y
+CONFIG_SND=y
+CONFIG_SND_TIMER=y
+CONFIG_SND_PCM=y
+CONFIG_SND_SOC=y
+CONFIG_SND_BCM2835_SOC_I2S=y
+CONFIG_SND_SOC_SPDIF_TX=y
+CONFIG_SND_SOC_SPDIF_RX=y
+CONFIG_SND_SIMPLE_CARD=y
+# Expose the running kernel config via /proc/config.gz for diagnostics.
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
