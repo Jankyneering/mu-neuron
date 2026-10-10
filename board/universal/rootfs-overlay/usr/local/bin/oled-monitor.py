@@ -134,6 +134,12 @@ class RackUI:
     def read_reg(self, reg):
         return self.read_regs_checked(reg, 1)[0]
 
+    def write_regs_plain(self, reg, values):
+        """Simple write through the plain i2c-dev file interface: the kernel
+        builds the transfer itself, a completely different code path from
+        I2C_RDWR."""
+        os.write(self.fd, bytes([reg] + list(values)))
+
     def write_regs(self, reg, values):
         """Combined transfer: register pointer write + data bytes in a
         single transaction (repeated start, single STOP), mirroring the
@@ -368,13 +374,16 @@ def diagnose_writes(panel):
         ("animation 0x0E", RACK_UI_REG_ANIMATION, 0x04),
     ]
     for name, reg, value in tests:
-        try:
-            panel.write_reg(reg, value)
-            back = panel.read_reg(reg)
-            print(f"diag: {name}: wrote 0x{value:02X}, read back 0x{back:02X} -> "
-                  f"{'OK' if back == value else 'FAIL'}", flush=True)
-        except OSError as e:
-            print(f"diag: {name}: error {e}", flush=True)
+        for method, writer in (("rdwr", panel.write_regs), ("plain", panel.write_regs_plain)):
+            try:
+                writer(reg, [value])
+                time.sleep(0.05)
+                back = panel.read_reg(reg)
+                print(f"diag: {name} [{method}]: wrote 0x{value:02X}, "
+                      f"read back 0x{back:02X} -> {'OK' if back == value else 'FAIL'}",
+                      flush=True)
+            except OSError as e:
+                print(f"diag: {name} [{method}]: error {e}", flush=True)
 
 
 def halt_system(panel):
