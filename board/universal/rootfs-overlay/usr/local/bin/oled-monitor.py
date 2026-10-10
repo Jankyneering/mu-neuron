@@ -90,10 +90,13 @@ class RackUI:
     between the pointer set and the read and desynchronise the pointer.
 
     The panel exposes a rotary encoder and a push button as event counters.
-    With config bits 0 and 1 set, both counters are cleared after being
-    read, so each poll returns only the events since the previous poll.
-    If the panel firmware does not persist the config write, the counters
-    accumulate and deltas are computed on the host instead.
+    The rotation count is always kept as an accumulating absolute counter
+    and deltas are computed on the host: clearing it on read (config bit 0)
+    would also reset the FOLLOWING/POINT animation that tracks the same
+    count. Only the push count is set to clear-on-read (config bit 1), so
+    each poll returns only the presses since the previous poll. If the
+    panel firmware does not persist the config write, presses fall back to
+    host-side deltas too.
     """
 
     def __init__(self, address=RACK_UI_ADDR):
@@ -109,25 +112,26 @@ class RackUI:
         self.fw_version_major = ver[0]
         print(f"Rack UI: firmware version {ver[0]}.{ver[1] >> 4}.{ver[1] & 0x0F}", flush=True)
 
-        # Ask for reset-on-read and verify with a few retries: a single
-        # read-back right after the write can be corrupted by bus glitches
-        self.reset_on_read = False
+        # Ask for push-count reset-on-read (config 0x02) and verify with a
+        # few retries: a single read-back can be corrupted by bus glitches
+        self.push_reset_on_read = False
         for _ in range(5):
-            self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+            self.write_reg(RACK_UI_REG_CONFIG, 0x02)
             try:
                 config, _, _ = self.read_status()
             except OSError:
                 continue
-            if (config & 0x03) == 0x03:
-                self.reset_on_read = True
+            if (config & 0x02) == 0x02:
+                self.push_reset_on_read = True
                 break
             time.sleep(0.05)
-        if self.reset_on_read:
-            # Discard any events that predate startup
+        if not self.push_reset_on_read:
+            print("Rack UI: push reset-on-read not supported, using delta mode", flush=True)
+        # Baseline for the host-side rotation deltas (always incremental)
+        self.resync_baseline()
+        if self.push_reset_on_read:
+            # Discard any presses that predate startup
             _, _, _ = self.read_status()
-        else:
-            print("Rack UI: reset-on-read not supported, using delta mode", flush=True)
-            self.resync_baseline()
 
     def read_regs(self, reg, length):
         """Combined transfer: set the register pointer, then read `length`
@@ -212,32 +216,38 @@ class RackUI:
     def poll(self):
         """Return (rotation_delta, new_presses) since the previous poll.
 
-        Implausible deltas (pointer desynchronisation, bus glitches) are
-        discarded and the baseline is resynchronised instead of acted on.
+        Rotation is always incremental (host-side delta of the absolute
+        counter) so the FOLLOWING/POINT animation keeps its position.
+        Presses use the panel's reset-on-read when available; otherwise
+        host-side deltas. Implausible deltas (pointer desynchronisation,
+        bus glitches) are discarded and the baseline resynchronised.
         """
-        if self.reset_on_read:
-            config, rotation, presses = self.read_status()
-            if (config & 0x03) != 0x03:
+        if self.push_reset_on_read:
+            try:
+                config, rotation_abs, presses = self.read_status()
+            except OSError:
+                return 0, 0
+            if (config & 0x02) != 0x02:
                 # Panel watchdog reset: re-arm and discard stale counters
-                self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+                self.write_reg(RACK_UI_REG_CONFIG, 0x02)
+                self.resync_baseline()
                 self.read_status()
                 return 0, 0
-            return rotation, presses
+        else:
+            try:
+                _, rotation_abs, presses_abs = self.read_status()
+            except OSError:
+                return 0, 0
+            presses = (presses_abs - self.last_presses) & 0xFF
+            self.last_presses = presses_abs
 
-        try:
-            _, rotation_abs, presses_abs = self.read_status()
-        except OSError:
-            return 0, 0
-        rotation = rotation_abs - self.last_rotation
         rotation = rotation_abs - self.last_rotation
         rotation = struct.unpack(">h", struct.pack(">H", rotation & 0xFFFF))[0]
-        presses = (presses_abs - self.last_presses) & 0xFF
         if abs(rotation) > max_plausible_rotation or presses > max_plausible_presses:
             print(f"encoder: implausible event dropped (rot {rotation}, presses {presses})", flush=True)
             self.resync_baseline()
             return 0, 0
         self.last_rotation = rotation_abs
-        self.last_presses = presses_abs
         return rotation, presses
 
     def close(self):
@@ -413,10 +423,13 @@ def diagnose_writes(panel):
                       flush=True)
             except OSError as e:
                 print(f"diag: {name} [{method}]: error {e}", flush=True)
-    # Leave the panel in a sane state (the diagnostic's last write sets
-    # the BREATHING animation)
+    # Leave the panel in a sane state: the diagnostic's last writes leave
+    # the BREATHING animation and config 0x03; restore the runtime values
+    # (FOLLOWING animation, push-count reset-on-read only, so the rotation
+    # counter keeps accumulating for the animation)
     try:
         panel.set_animation(RACK_UI_ANIM_FOLLOWING)
+        panel.write_reg(RACK_UI_REG_CONFIG, 0x02)
     except OSError:
         pass
 
