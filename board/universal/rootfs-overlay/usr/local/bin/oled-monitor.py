@@ -1,6 +1,7 @@
 import time
 import os
 import glob
+import subprocess
 import fcntl
 import struct
 import ctypes
@@ -243,19 +244,15 @@ class RackUI:
         os.close(self.fd)
 
 
-# Create display
-PANEL_BUS = find_panel_bus() or 1
-serial = i2c(port=PANEL_BUS, address=0x3C)  # Change address to 0x3D if needed
-oled = ssd1306(serial, width=128, height=64)
+cpu_graph_queue = None
+temp_graph_queue = None
+ram_graph_queue = None
 
-width = oled.width
-height = oled.height
-font = ImageFont.load_default()
-
-# Create queues for graphs
-cpu_graph_queue = queue.Queue(maxsize=width - 72)
-temp_graph_queue = queue.Queue(maxsize=width - 72)
-ram_graph_queue = queue.Queue(maxsize=width - 72)
+def make_graph_queues():
+    global cpu_graph_queue, temp_graph_queue, ram_graph_queue
+    cpu_graph_queue = queue.Queue(maxsize=width - 72)
+    temp_graph_queue = queue.Queue(maxsize=width - 72)
+    ram_graph_queue = queue.Queue(maxsize=width - 72)
 
 def init_graph_queues(zero=False):
     if zero:
@@ -440,6 +437,16 @@ if __name__ == '__main__':
         diagnose_writes(panel)
         raise SystemExit(0)
 
+    # Display setup only for the normal UI path: the diagnostic must run
+    # without opening the OLED (and this late, after argument handling)
+    PANEL_BUS = find_panel_bus() or 1
+    serial = i2c(port=PANEL_BUS, address=0x3C)  # Change address to 0x3D if needed
+    oled = ssd1306(serial, width=128, height=64)
+    width = oled.width
+    height = oled.height
+    font = ImageFont.load_default()
+
+    make_graph_queues()
     init_graph_queues(zero=True)
     display_refresh_interval = 2.5
     queue_refresh_interval = display_refresh_interval
