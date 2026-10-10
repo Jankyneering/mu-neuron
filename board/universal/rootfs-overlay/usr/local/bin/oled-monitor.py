@@ -33,13 +33,28 @@ class RackUI:
     The panel exposes a rotary encoder and a push button as event counters.
     With config bits 0 and 1 set, both counters are cleared after being read,
     so each poll returns only the events that happened since the last poll.
+    The panel watchdog soft-resets the MCU if the firmware hangs, which
+    restores register defaults, so the config is re-verified on every poll.
     """
 
     def __init__(self, bus=RACK_UI_BUS, address=RACK_UI_ADDR):
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, address)
-        # Clear rotation and push counts after read
-        self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+        self.sync_config()
+
+    def sync_config(self):
+        """Ensure reset-on-read is active; re-arm it after a panel reset.
+
+        Returns True if the config had drifted (i.e. the panel reset since
+        the last poll), in which case the counters may hold stale events:
+        they are read and discarded so the stale events are not acted on.
+        """
+        if self.read_reg(RACK_UI_REG_CONFIG) != 0x03:
+            self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+            self.read_reg16(RACK_UI_REG_ROTATION)
+            self.read_reg(RACK_UI_REG_PUSH_COUNT)
+            return True
+        return False
 
     def read_reg(self, reg):
         os.write(self.fd, bytes([reg]))
@@ -54,6 +69,8 @@ class RackUI:
 
     def poll(self):
         """Return (rotation_delta, new_presses) since the previous poll."""
+        if self.sync_config():
+            return 0, 0
         rotation = self.read_reg16(RACK_UI_REG_ROTATION)
         presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
         return rotation, presses
@@ -178,6 +195,7 @@ def draw_halt_confirm_page(draw, seconds_left):
     draw.text((4, 54), 'Timeout: ' + str(seconds_left) + 's', font=font, fill="white")
 
 def halt_system():
+    print("Halting system by user request", flush=True)
     os.system("halt")
 
 if __name__ == '__main__':
@@ -217,6 +235,8 @@ if __name__ == '__main__':
                     encoderPollLast = timeNow
                     rotation, presses = panel.poll()
 
+                    if presses > 0:
+                        print(f"encoder: {presses} press(es)", flush=True)
                     if halt_confirm_until is not None:
                         if presses > 0:
                             halt_confirm_until = None
@@ -226,15 +246,12 @@ if __name__ == '__main__':
                             displayTimeLast = 0.0
                     else:
                         if rotation != 0:
+                            print(f"encoder: rotate {rotation}", flush=True)
                             page = (page + rotation) % len(pages)
                             displayTimeLast = 0.0
-                        if presses > 0:
-                            if pages[page] is draw_halt_page:
-                                halt_confirm_until = timeNow + halt_confirm_timeout
-                                displayTimeLast = 0.0
-                            else:
-                                page = pages.index(draw_halt_page)
-                                displayTimeLast = 0.0
+                        if presses > 0 and pages[page] is draw_halt_page:
+                            halt_confirm_until = timeNow + halt_confirm_timeout
+                            displayTimeLast = 0.0
 
             if not displaySleep and timeNow - displayTimeLast >= display_refresh_interval:
                 if halt_confirm_until is not None:
