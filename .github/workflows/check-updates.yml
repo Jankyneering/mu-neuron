@@ -1,8 +1,9 @@
-name: Check tetra-bluestation updates
+name: Check upstream updates
 
-# Weekly: check if a newer tetra-bluestation release is published upstream.
-# If so, bump the pinned version + sha256 and open a draft PR for review.
-# Never merges automatically — a human reviews and merges when ready.
+# Weekly: check if newer releases/tags are published upstream for the pinned
+# third-party packages. If so, bump the pinned version and open a draft PR
+# per upstream for review. Never merges automatically — a human reviews,
+# rebuilds and smoke-tests on hardware before merging.
 
 on:
   schedule:
@@ -14,74 +15,116 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: check-tetra-bluestation-updates
+  group: check-upstream-updates
   cancel-in-progress: true
 
 jobs:
   check-and-bump:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tetra-bluestation
+            # Latest *release* via the releases API
+            latest_cmd: >
+              curl -sfL -H 'Accept: application/vnd.github+json'
+              https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest
+              | grep -m1 '"tag_name"' | cut -d'"' -f4
+          - name: mu-cell-bb-drivers
+            # Latest *tag* (the driver repo has no GitHub releases)
+            latest_cmd: >
+              curl -sfL -H 'Accept: application/vnd.github+json'
+              https://api.github.com/repos/Jankyneering/mu-cell-bb-drivers/tags
+              | grep -m1 '"name"' | cut -d'"' -f4
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check for newer release
+      - name: Check ${{ matrix.name }}
         id: check
         run: |
-          MK="board/universal/packages/tetra-bluestation/tetra-bluestation.mk"
-          HASH="board/universal/packages/tetra-bluestation/tetra-bluestation.hash"
-          current=$(grep -m1 '^TETRA_BLUESTATION_VERSION' "$MK" | cut -d' ' -f3)
-          latest=$(curl -sfL -H 'Accept: application/vnd.github+json' \
-            https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest \
-            | grep -m1 '"tag_name"' | cut -d'"' -f4)
+          case "${{ matrix.name }}" in
+            tetra-bluestation)
+              MK="board/universal/packages/tetra-bluestation/tetra-bluestation.mk"
+              VAR="TETRA_BLUESTATION_VERSION"
+              ;;
+            mu-cell-bb-drivers)
+              MK="board/universal/packages/soapy-mu-cell/soapy-mu-cell.mk"
+              MK2="board/universal/packages/mu-cell-bb-dts/mu-cell-bb-dts.mk"
+              VAR="SOAPY_MU_CELL_VERSION"
+              ;;
+          esac
+
+          current=$(grep -m1 "^${VAR}" "$MK" | cut -d' ' -f3)
+          latest=$( ${{ matrix.latest_cmd }} )
 
           if [ -z "$latest" ]; then
-            echo "Could not reach GitHub API" >&2
+            echo "Could not reach GitHub API for ${{ matrix.name }}" >&2
             exit 1
           fi
 
           if [ "$current" = "$latest" ]; then
-            echo "up-to-date ($current)"
+            echo "${{ matrix.name }}: up-to-date ($current)"
             echo "bump=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "New release: $current -> $latest"
-          digest=$(curl -sfL -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest" \
-            | python3 -c "import json,sys; r=json.load(sys.stdin); \
-              print(next(a['digest'] for a in r['assets'] if a['name']=='bluestation-bs-aarch64-generic'))")
-          sha256=${digest#sha256:}
-
-          sed -i "s|^TETRA_BLUESTATION_VERSION = .*|TETRA_BLUESTATION_VERSION = $latest|" "$MK"
-          cat > "$HASH" <<EOF
-          # Locally computed:
-          sha256  $sha256  bluestation-bs-aarch64-generic
-          EOF
+          echo "${{ matrix.name }}: $current -> $latest"
+          sed -i "s|^${VAR} = .*|${VAR} = $latest|" "$MK"
+          if [ -n "${MK2:-}" ]; then
+            sed -i "s|^MU_CELL_BB_DTS_VERSION = .*|MU_CELL_BB_DTS_VERSION = $latest|" "$MK2"
+          fi
 
           echo "bump=true" >> "$GITHUB_OUTPUT"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
-      - name: Create draft PR
+      - name: Create draft PR for ${{ matrix.name }}
         if: steps.check.outputs.bump == 'true'
         run: |
           latest="${{ steps.check.outputs.latest }}"
-          branch="updates/tetra-bluestation-${latest}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add board/universal/packages/tetra-bluestation/
-          git commit -m "Bump tetra-bluestation to $latest"
-          git push origin "$branch"
-          gh pr create --draft --title "Bump tetra-bluestation to $latest" \
-            --body "Automated weekly check found a new tetra-bluestation release.
+          case "${{ matrix.name }}" in
+            tetra-bluestation)
+              files="board/universal/packages/tetra-bluestation/"
+              title="Bump tetra-bluestation to $latest"
+              body=$(cat <<EOF
+          Automated weekly check found a new tetra-bluestation release.
 
           ## Summary
-          - Bumps the pinned prebuilt \`bluestation-bs\` binary from the previous pin to \`$latest\`
-          - Updates the sha256 in \`tetra-bluestation.hash\` from the release asset digest
+          - Bumps the pinned prebuilt \`bluestation-bs\` binary to \`$latest\`
 
           ## Review checklist
           - [ ] Check the upstream release notes for breaking changes
-          - [ ] Rebuild an image and smoke-test \`bluestation-bs\` on a board before merging" \
-            --head "$branch"
+          - [ ] Rebuild an image and smoke-test \`bluestation-bs\` on a board before merging
+          EOF
+              )
+              ;;
+            mu-cell-bb-drivers)
+              files="board/universal/packages/soapy-mu-cell/ board/universal/packages/mu-cell-bb-dts/"
+              title="Bump mu-cell-bb-drivers to $latest"
+              body=$(cat <<EOF
+          Automated weekly check found a new mu-cell-bb-drivers tag.
+
+          ## Summary
+          - Bumps the pinned SoapyMuCell driver and µCell DTS overlay to \`$latest\`
+          - Both packages stay in sync (same upstream repo)
+
+          ## Review checklist
+          - [ ] Check what changed in the driver repo since the current pin
+          - [ ] Rebuild, flash and verify on hardware: \`muneuron probe\` must pass
+          - [ ] A reboot is required after flashing so the new DTS overlay loads
+          EOF
+              )
+              ;;
+          esac
+
+          branch="updates/${{ matrix.name }}-${latest}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add $files
+          git commit -m "$title"
+          git push origin "$branch"
+          gh pr create --draft --title "$title" --body "$body" --head "$branch"
         env:
           GH_TOKEN: ${{ github.token }}

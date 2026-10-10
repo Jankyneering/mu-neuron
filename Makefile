@@ -101,6 +101,8 @@ universal: final-image
 # Compare pinned third-party package versions against their upstream latest.
 # No changes are made; this only reports what is available.
 TETRA_BLUESTATION_MK := $(BOARD_DIR)/packages/tetra-bluestation/tetra-bluestation.mk
+SOAPY_MU_CELL_MK := $(BOARD_DIR)/packages/soapy-mu-cell/soapy-mu-cell.mk
+MU_CELL_BB_DTS_MK := $(BOARD_DIR)/packages/mu-cell-bb-dts/mu-cell-bb-dts.mk
 
 check-updates:
 	@echo ">>> Checking pinned package versions against upstream..."
@@ -117,6 +119,20 @@ check-updates:
 		echo "    bump TETRA_BLUESTATION_VERSION in $(TETRA_BLUESTATION_MK)"; \
 		echo "    and update the sha256 in tetra-bluestation.hash"; \
 	fi
+	@current=$$(grep -m1 '^SOAPY_MU_CELL_VERSION' $(SOAPY_MU_CELL_MK) | cut -d' ' -f3); \
+	latest=$$(curl -sfL -H 'Accept: application/vnd.github+json' \
+		https://api.github.com/repos/Jankyneering/mu-cell-bb-drivers/tags \
+		| grep -m1 '"name"' | cut -d'"' -f4); \
+	if [ -z "$$latest" ]; then \
+		echo "  mu-cell-bb-drivers: could not reach GitHub API"; \
+	elif [ "$$current" = "$$latest" ]; then \
+		echo "  mu-cell-bb-drivers: up-to-date ($$current)"; \
+	else \
+		echo "  mu-cell-bb-drivers: $$current -> available: $$latest"; \
+		echo "    bump SOAPY_MU_CELL_VERSION in $(SOAPY_MU_CELL_MK)"; \
+		echo "    and MU_CELL_BB_DTS_VERSION in $(MU_CELL_BB_DTS_MK) (keep in sync)"; \
+	fi
+
 help:
 	@echo ""
 	@echo "Usage: make [target]"
