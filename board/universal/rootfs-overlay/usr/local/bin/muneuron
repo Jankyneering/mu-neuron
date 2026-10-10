@@ -152,6 +152,7 @@ cmd_timezone() {
         printf 'Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n'
         printf 'Enter a timezone (e.g. Europe/Paris): '
         read -r tz
+    fi
 
     if [ -z "$tz" ]; then
         error "No timezone given. Usage: muneuron timezone <Area/City>"
