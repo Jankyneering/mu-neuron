@@ -159,10 +159,13 @@ build-%:
 	    exit 1; \
 	fi
 	@echo ">>> Configuring $* from configs/$(DEFCONFIG_$*)"
-	# Cloud-storage mounts (Nextcloud/iCloud on macOS) don't reliably preserve
-	# the execute bit on bind-mounted scripts — restore it or Buildroot's
-	# post-build hook fails with "bad interpreter: Permission denied".
-	@chmod +x $(BOARD_DIR)/post-build.sh $(BOARD_DIR)/post-image.sh 2>/dev/null || true
+	# Cloud-storage bind mounts (Nextcloud/iCloud on macOS) can lose the execute
+	# bit inside the container, which breaks Buildroot's direct execution of the
+	# post-build hook ("bad interpreter: Permission denied"). Copy the script
+	# into the build output dir (a real volume) and point Buildroot at that copy.
+	@mkdir -p $(OUTPUT_DIR)/$*
+	@cp $(BOARD_DIR)/post-build.sh $(OUTPUT_DIR)/$*/post-build.sh
+	@chmod +x $(OUTPUT_DIR)/$*/post-build.sh
 	@if [ ! -f $(CURDIR)/configs/$(DEFCONFIG_$*) ]; then \
 	    echo "ERROR: configs/$(DEFCONFIG_$*) not found."; \
 	    echo "       Run 'make bootstrap-$*' first."; \
