@@ -15,3 +15,5 @@ buildroot/dl/
 *.swpimages/
 *images*
 sdcard.img
+__pycache__/
+*.pyc
