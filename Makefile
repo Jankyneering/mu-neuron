@@ -81,9 +81,6 @@ DTC := $(OUTPUT_DIR)/rpi3/host/bin/dtc
 # Phony targets
 # =============================================================================
 .PHONY: all build build-all universal dtbs merge-boot final-image clean clean-all \
-        $(addprefix dtbs-,$(TARGETS)) \
-        $(addprefix custom-dtbs-,$(TARGETS)) \
-        $(addprefix bootstrap-,$(TARGETS)) \
         check-builds help
 
 # Default: build the priority target (rpi3) and show its ready-to-flash image.
@@ -130,7 +127,7 @@ help:
 #   make -C buildroot O=output/<target> savedefconfig BR2_DEFCONFIG=configs/muneuron_<target>_defconfig
 # =============================================================================
 bootstrap-%:
-	@if [ -z "$$(filter $*,$(TARGETS))" ]; then \
+	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
 	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
 	fi
 	@echo ">>> Bootstrapping $* from $(UPSTREAM_DEFCONFIG_$*)"
@@ -149,7 +146,7 @@ bootstrap-%:
 # build-all can skip already-finished targets.
 # =============================================================================
 build-%:
-	@if [ -z "$$(filter $*,$(TARGETS))" ]; then \
+	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
 	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
 	fi
 	@echo ">>> Configuring $* from configs/$(DEFCONFIG_$*)"
