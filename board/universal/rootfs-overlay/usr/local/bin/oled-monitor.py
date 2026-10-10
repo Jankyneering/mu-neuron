@@ -405,8 +405,14 @@ def diagnose_writes(panel):
                 writer(reg, [value])
                 time.sleep(0.05)
                 back = panel.read_reg(reg)
+                # A watchdog reset (IWDG, bit 3) reverts all registers to
+                # defaults: report it so a failing write is distinguishable
+                # from a write that was merely ignored
+                cause = panel.read_reg(0x02)
+                reset_note = "" if not cause & 0x08 else " [panel IWDG reset!]"
                 print(f"diag: {name} [{method}]: wrote 0x{value:02X}, "
-                      f"read back 0x{back:02X} -> {'OK' if back == value else 'FAIL'}",
+                      f"read back 0x{back:02X}, cause 0x{cause:02X} -> "
+                      f"{'OK' if back == value else 'FAIL'}{reset_note}",
                       flush=True)
             except OSError as e:
                 print(f"diag: {name} [{method}]: error {e}", flush=True)
