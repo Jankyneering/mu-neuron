@@ -28,8 +28,8 @@ DOCS_URL="https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide
 
 RED=""; GREEN=""; YELLOW=""; NC=""
 if [ -t 1 ]; then
-    RED="[0;31m"; GREEN="[0;32m"; YELLOW="[1;33m"
-    NC="[0m"
+    RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"
+    NC="\033[0m"
 fi
 
 info()  { printf '%s[INFO]%s  %s\n' "$GREEN" "$NC" "$*"; }
@@ -152,6 +152,7 @@ cmd_timezone() {
         printf 'Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n'
         printf 'Enter a timezone (e.g. Europe/Paris): '
         read -r tz
+        tz=$(printf "%s" "$tz" | tr -d " \t\r\n")
     fi
 
     if [ -z "$tz" ]; then
@@ -207,6 +208,13 @@ cmd_status() {
     printf '  DT overlay installed:   %s\n' "$(overlay_installed && echo yes || echo no)"
     printf '  SoapyMuCell registered: %s\n' "$(driver_registered && echo yes || echo no)"
     printf '  Driver repo checkout:   %s\n' "${MUCELL_INSTALL_DIR:-$HOME/mu-cell-bb-drivers}"
+    printf '  System time:            %s\n' "$(date)"
+    if pid=$(pidof ntpd 2>/dev/null || pgrep ntpd 2>/dev/null); then
+        printf '  ntpd:                   running (pid %s)\n' "$pid"
+    else
+        printf '  ntpd:                   not running\n'
+        warn "Clock may be unsynchronised. Check: /etc/init.d/S45ntpd start"
+    fi
     if ! hat_detected; then
         warn "No HAT EEPROM. Check the board is seated and the Pi has rebooted."
     fi

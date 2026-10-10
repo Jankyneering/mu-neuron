@@ -3,7 +3,7 @@
 # Runs after the network init script (S40network) brings up DHCP.
 # busybox ntpd keeps running and re-syncs periodically.
 
-NTPD=/usr/sbin/ntpd
+NTPD=$(command -v ntpd)
 PIDFILE=/var/run/ntpd.pid
 SERVERS="0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org"
 
@@ -18,6 +18,9 @@ case "$1" in
         for s in $SERVERS; do
             args="$args -p $s"
         done
+        # -N: run in foreground once to sync (waits for the first reply,
+        # so the clock is right before curl/HTTPS services start),
+        # then keep running as the periodic daemon.
         start-stop-daemon -S -q -m -p "$PIDFILE" -x "$NTPD" -- -N $args
         ;;
     stop)
