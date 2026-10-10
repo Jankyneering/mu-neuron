@@ -18,6 +18,7 @@ min_temp_graph = 15
 # Rack UI front panel (I2C peripheral)
 RACK_UI_BUS = 1
 RACK_UI_ADDR = 0x36
+RACK_UI_REG_VERSION = 0x00
 RACK_UI_REG_CONFIG = 0x03
 RACK_UI_REG_ROTATION = 0x04
 RACK_UI_REG_PUSH_COUNT = 0x06
@@ -77,12 +78,20 @@ class RackUI:
         self.animation_state = None
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, address)
+        # Firmware version sentinel, used to validate read alignment
+        ver = self.read_regs(RACK_UI_REG_VERSION, 2)
+        self.fw_version_major = ver[0]
+        print(f"Rack UI: firmware version {ver[0]}.{ver[1] >> 4}.{ver[1] & 0x0F}", flush=True)
+
         # Ask for reset-on-read and verify with a few retries: a single
         # read-back right after the write can be corrupted by bus glitches
         self.reset_on_read = False
         for _ in range(5):
             self.write_reg(RACK_UI_REG_CONFIG, 0x03)
-            config, _, _ = self.read_status()
+            try:
+                config, _, _ = self.read_status()
+            except OSError:
+                continue
             if (config & 0x03) == 0x03:
                 self.reset_on_read = True
                 break
@@ -107,11 +116,23 @@ class RackUI:
         fcntl.ioctl(self.fd, I2C_RDWR, payload)
         return bytes(data)
 
-    def read_reg(self, reg):
-        return self.read_regs(reg, 1)[0]
+    def read_regs_checked(self, reg, length, retries=3):
+        """Self-validating read: the transaction starts at register 0x00,
+        whose first byte is the fixed firmware version sentinel. If the
+        sentinel does not match, the transfer was misaligned (stale pointer
+        on the panel); the read is retried and never trusted. Returns the
+        `length` bytes starting at `reg`."""
+        for attempt in range(retries):
+            raw = self.read_regs(RACK_UI_REG_VERSION, reg + length)
+            if raw[0] == self.fw_version_major:
+                return raw[reg:reg + length]
+            if attempt < retries - 1:
+                time.sleep(0.01)
+        print(f"Rack UI: misaligned read at 0x{reg:02X}, giving up this poll", flush=True)
+        raise OSError("misaligned register read")
 
-    def read_reg16(self, reg):
-        return struct.unpack(">h", self.read_regs(reg, 2))[0]
+    def read_reg(self, reg):
+        return self.read_regs_checked(reg, 1)[0]
 
     def write_regs(self, reg, values):
         """Combined transfer: register pointer write + data bytes in a
@@ -133,20 +154,22 @@ class RackUI:
             return
         # Write and verify: the animation register is the clearest signal
         # of a pointer desync, so a failed write is retried once
-        self.write_reg(RACK_UI_REG_ANIMATION, anim)
-        for _ in range(2):
-            if self.read_reg(RACK_UI_REG_ANIMATION) == anim:
-                self.animation_state = anim
-                print(f"Rack UI: animation set to 0x{anim:02X}", flush=True)
-                return
+        for _ in range(3):
             self.write_reg(RACK_UI_REG_ANIMATION, anim)
+            try:
+                if self.read_reg(RACK_UI_REG_ANIMATION) == anim:
+                    self.animation_state = anim
+                    print(f"Rack UI: animation set to 0x{anim:02X}", flush=True)
+                    return
+            except OSError:
+                continue
         print(f"Rack UI: animation write failed to stick (0x{anim:02X})", flush=True)
         self.animation_state = None
 
     def read_status(self):
         """Coherent snapshot of config, rotation count and push count in a
         single combined transfer (auto-increment from register 0x03)."""
-        config, rot_hi, rot_lo, presses = self.read_regs(RACK_UI_REG_CONFIG, 4)
+        config, rot_hi, rot_lo, presses = self.read_regs_checked(RACK_UI_REG_CONFIG, 4)
         rotation = struct.unpack(">h", bytes([rot_hi, rot_lo]))[0]
         return config, rotation, presses
 
@@ -169,7 +192,11 @@ class RackUI:
                 return 0, 0
             return rotation, presses
 
-        _, rotation_abs, presses_abs = self.read_status()
+        try:
+            _, rotation_abs, presses_abs = self.read_status()
+        except OSError:
+            return 0, 0
+        rotation = rotation_abs - self.last_rotation
         rotation = rotation_abs - self.last_rotation
         rotation = struct.unpack(">h", struct.pack(">H", rotation & 0xFFFF))[0]
         presses = (presses_abs - self.last_presses) & 0xFF
