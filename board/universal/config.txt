@@ -13,8 +13,13 @@
 arm_64bit=1
 kernel=Image
 dtoverlay=miniuart-bt
-dtparam=i2c_arm=on
-dtparam=i2c_arm_baudrate=400000
+# I2C is bit-banged on the same pins (GPIO2/3) instead of the BSC
+# controller: the BCM2835 BSC hardware does not honor SCL clock
+# stretching by slaves, which breaks writes to the ISR-driven Rack UI
+# panel (0x36). The i2c-gpio software master handles stretching
+# correctly. delay-us=5 gives ~100 kHz, the panel's rated speed.
+dtparam=i2c_arm=off
+dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,i2c_gpio_delay_us=5
 enable_uart=1
 dtparam=spi=on
 dtoverlay=mu-cell-bb_raspberrypi

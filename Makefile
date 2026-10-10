@@ -80,7 +80,7 @@ DTC := $(OUTPUT_DIR)/rpi3/host/bin/dtc
 # =============================================================================
 # Phony targets
 # =============================================================================
-.PHONY: all build build-all universal dtbs merge-boot final-image clean clean-all \
+.PHONY: all build build-all universal dtbs merge-boot final-image clean clean-all restage-boot-% \
         check-builds help
 
 # Default: build the priority target (rpi3) and show its ready-to-flash image.
@@ -90,7 +90,7 @@ all: build
 	@echo ">>> Flash with:"
 	@echo "    sudo dd if=$(TARGET_IMAGE) of=/dev/sdX bs=4M status=progress conv=fsync"
 
-build: build-$(TARGET)
+build: build-$(TARGET) restage-boot-$(TARGET)
 
 # Full multi-board flow: build every SoC family, merge, assemble universal image.
 universal: final-image
@@ -225,6 +225,27 @@ build-%:
 	    BR2_DL_DIR=$(DL_DIR) \
 	    all
 	@touch $(OUTPUT_DIR)/$*/build.done
+
+# Restage boot-partition inputs that Buildroot does not track: the
+# rpi-firmware package stamps are not invalidated when the *contents* of
+# config.txt change, so an incremental build would ship a stale FAT
+# partition. Always copy the current file into the images dir before the
+# image is (re)assembled.
+restage-boot-%:
+	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
+	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
+	fi
+	@if [ -d $(OUTPUT_DIR)/$*/images/rpi-firmware ]; then \
+	    cp $(BOARD_DIR)/config.txt $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt; \
+	    echo ">>> Restaged config.txt for $*"; \
+	    echo ">>> Regenerating $* disk image (target-post-image)"; \
+	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
+	        BR2_DL_DIR=$(DL_DIR) target-post-image || exit 1; \
+	    grep -q "i2c-gpio" $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt \
+	        || { echo "ERROR: restaged config.txt missing i2c-gpio"; exit 1; }; \
+	else \
+	    echo "WARNING: no images/rpi-firmware for $*, skipping restage"; \
+	fi
 
 # Build all targets in parallel.
 # Each Buildroot build internally uses all CPU cores, so we use a semaphore

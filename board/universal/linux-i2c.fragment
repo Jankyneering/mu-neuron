@@ -1,0 +1,4 @@
+# Bit-banged I2C master used for the Rack UI panel and OLED: the BCM2835
+# BSC hardware controller does not honor SCL clock stretching by slaves,
+# which breaks writes to the ISR-driven Rack UI panel (see config.txt).
+CONFIG_I2C_GPIO=y
