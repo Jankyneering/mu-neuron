@@ -1,4 +1,4 @@
-SOAPY_MU_CELL_VERSION     = 6714e1b29cda978d9f41b3e3badf91915623b335
+SOAPY_MU_CELL_VERSION     = v1.0
 SOAPY_MU_CELL_SITE        = https://github.com/Jankyneering/mu-cell-bb-drivers
 SOAPY_MU_CELL_SITE_METHOD = git
 SOAPY_MU_CELL_GIT_SUBMODULES = NO
