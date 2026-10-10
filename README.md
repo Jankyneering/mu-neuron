@@ -134,6 +134,30 @@ future Pi that reuses BCM2711):
 The RPi bootloader picks the right DTB from the boot partition automatically
 based on the board model — no other changes needed.
 
+## The `muneuron` utility
+
+Every µNeuron image ships a `muneuron` command that manages the µCell BB
+driver suite. On a µNeuron image the driver and device tree overlay are
+already built in; on a stock Raspberry Pi OS card the same command installs
+them by delegating to the upstream
+[install script](https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide.md).
+
+```zsh
+muneuron quickstart   # install the µCell drivers and dependencies
+muneuron update       # update drivers and dependencies
+muneuron probe        # probe the driver (SoapySDRUtil --probe=driver=mucell)
+muneuron status       # show board/driver detection state
+muneuron version      # show the running µNeuron version
+```
+
+On plain Raspberry Pi OS (no µNeuron image), the equivalent one-liner from the
+[quick start guide](https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide.md)
+performs the same install:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Jankyneering/mu-cell/main/install-mu-cell-sw.sh)"
+```
+
 ## Acknowledgements & License
 
 Made with ❤️, lots of ☕️, and lack of 😴
