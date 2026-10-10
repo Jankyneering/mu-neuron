@@ -1,0 +1,2 @@
+# Ensure /usr/local/bin is on PATH for all shells.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
