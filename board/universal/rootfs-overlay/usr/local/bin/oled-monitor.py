@@ -352,6 +352,31 @@ def set_panel_animation(panel, anim):
         print(f"Rack UI: animation write failed: {e}", flush=True)
 
 
+def diagnose_writes(panel):
+    """Controlled write experiments to locate where writes are lost.
+
+    GP RAM (0x20) is plain scratch with no side effects; the rotation
+    count (0x04) and config (0x03) have firmware write paths. Each write
+    is verified by read-back, so the log shows exactly which registers
+    accept host writes on this panel.
+    """
+    tests = [
+        ("GP RAM 0x20", 0x20, 0xA5),
+        ("GP RAM 0x21", 0x21, 0x5A),
+        ("rotation count 0x04", RACK_UI_REG_ROTATION, 0x00),
+        ("config 0x03", RACK_UI_REG_CONFIG, 0x03),
+        ("animation 0x0E", RACK_UI_REG_ANIMATION, 0x04),
+    ]
+    for name, reg, value in tests:
+        try:
+            panel.write_reg(reg, value)
+            back = panel.read_reg(reg)
+            print(f"diag: {name}: wrote 0x{value:02X}, read back 0x{back:02X} -> "
+                  f"{'OK' if back == value else 'FAIL'}", flush=True)
+        except OSError as e:
+            print(f"diag: {name}: error {e}", flush=True)
+
+
 def halt_system(panel):
     print("Halting system by user request", flush=True)
     oled.clear()
@@ -364,6 +389,16 @@ def halt_system(panel):
     os.system("halt")
 
 if __name__ == '__main__':
+    import sys
+    if '--diagnose-writes' in sys.argv:
+        try:
+            panel = RackUI()
+        except OSError as e:
+            print(f"Rack UI not found: {e}")
+            raise SystemExit(1)
+        diagnose_writes(panel)
+        raise SystemExit(0)
+
     init_graph_queues(zero=True)
     display_refresh_interval = 2.5
     queue_refresh_interval = display_refresh_interval
