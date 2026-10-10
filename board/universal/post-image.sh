@@ -28,6 +28,12 @@ if [ -z "${KERNEL}" ]; then
 fi
 FILES+=( "${KERNEL}" )
 
+# The [piN] kernel= overrides in config.txt select per-family kernels in the
+# universal multi-board image. This per-board image ships a single kernel
+# under the [all] name, so drop those overrides from the FAT copy — the
+# bootloader would otherwise look for kernel-rpi<N>.img and fail to boot.
+sed -i -e '/^kernel=kernel-rpi[0-9]*\.img$/d' "${BINARIES_DIR}/rpi-firmware/config.txt"
+
 BOOT_FILES=$(printf '\t\t\t"%s",\n' "${FILES[@]}")
 
 cat > "${GENIMAGE_CFG}" <<EOF
