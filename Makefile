@@ -1,47 +1,50 @@
 # =============================================================================
-# Universal Raspberry Pi Image Builder
+# µNeuron — Raspberry Pi SDR base-station image builder
 # =============================================================================
+# Priority target: Raspberry Pi 3 (BCM2710).
+#   `make` builds a ready-to-flash Pi 3 image.
+#   Other boards: `make TARGET=rpi4` / `make TARGET=rpi5`.
+#   A multi-board "universal" image is still available: `make universal`.
+
+TARGET ?= rpi3
 
 BUILDROOT_DIR  ?= $(CURDIR)/buildroot
 BOARD_DIR      := $(CURDIR)/board/universal
 CUSTOM_DTS_DIR := $(BOARD_DIR)/custom-dts
 OUTPUT_DIR     := $(CURDIR)/output
+TARGET_OUTPUT := $(OUTPUT_DIR)/$(TARGET)
+TARGET_IMAGE  := $(TARGET_OUTPUT)/images/sdcard.img
 UNIVERSAL_BOOT := $(OUTPUT_DIR)/universal/boot
 FINAL_IMAGE    := $(OUTPUT_DIR)/universal/sdcard.img
 
-# CM5 is consolidated into rpi5 (same BCM2712 SoC, same kernel, same rootfs).
-# CM5 DTBs are pulled from the rpi5 build output — no separate build needed.
-TARGETS := rpi3 rpi4 rpi5 zero2w cm4 cm5
+# One build per SoC family — a family image boots every board sharing that SoC:
+#   rpi3: Pi 3B / 3B+ / Zero 2W / CM3   (BCM2710)
+#   rpi4: Pi 4B / 400 / CM4 / CM4s     (BCM2711)
+#   rpi5: Pi 5 / 500 / CM5             (BCM2712)
+# To add a board to a family, add its DTB to DTBS_<family> below and to
+# BR2_LINUX_KERNEL_INTREE_DTS_NAME in the family defconfig — nothing else.
+TARGETS := rpi3 rpi4 rpi5
 
 # Path to common config fragment applied to all targets
 COMMON_FRAGMENT := $(BOARD_DIR)/config-fragments/common.config
 
 # Your saved defconfigs (never overwritten)
-DEFCONFIG_rpi3   := muneuron_rpi3_defconfig     # BCM2710, 64-bit
-DEFCONFIG_rpi4   := muneuron_rpi4_defconfig     # BCM2711, 64-bit
-DEFCONFIG_rpi5   := muneuron_rpi5_defconfig     # BCM2712, 64-bit (also covers CM5)
-DEFCONFIG_zero2w := muneuron_zero2w_defconfig   # BCM2710, 64-bit
-DEFCONFIG_cm4    := muneuron_cm4_defconfig      # BCM2711, 64-bit
-DEFCONFIG_cm5    := muneuron_cm5_defconfig      # BCM2712, 64-bit (same SoC as rpi5)
+DEFCONFIG_rpi3 := muneuron_rpi3_defconfig   # BCM2710, 64-bit
+DEFCONFIG_rpi4 := muneuron_rpi4_defconfig   # BCM2711, 64-bit
+DEFCONFIG_rpi5 := muneuron_rpi5_defconfig   # BCM2712, 64-bit
 
 # Upstream Buildroot defconfigs — used ONCE for bootstrapping only
-UPSTREAM_DEFCONFIG_rpi3   := raspberrypi3_64_defconfig
-UPSTREAM_DEFCONFIG_rpi4   := raspberrypi4_64_defconfig
-UPSTREAM_DEFCONFIG_rpi5   := raspberrypi5_defconfig
-UPSTREAM_DEFCONFIG_zero2w := raspberrypizero2w_64_defconfig
-UPSTREAM_DEFCONFIG_cm4    := raspberrypicm4io_64_defconfig
-UPSTREAM_DEFCONFIG_cm5    := raspberrypicm5io_defconfig
+UPSTREAM_DEFCONFIG_rpi3 := raspberrypi3_64_defconfig
+UPSTREAM_DEFCONFIG_rpi4 := raspberrypi4_64_defconfig
+UPSTREAM_DEFCONFIG_rpi5 := raspberrypi5_defconfig
 
 # DTBs to pull from each target's build output.
-# CM4 DTBs come from the rpi4 build (same BCM2711 SoC).
-# CM5 DTBs come from the rpi5 build (same BCM2712 SoC).
-DTBS_rpi3   := bcm2710-rpi-3-b-plus.dtb bcm2710-rpi-cm3.dtb
+DTBS_rpi3   := bcm2710-rpi-3-b.dtb bcm2710-rpi-3-b-plus.dtb \
+               bcm2710-rpi-zero-2-w.dtb bcm2710-rpi-cm3.dtb
 DTBS_rpi4   := bcm2711-rpi-4-b.dtb bcm2711-rpi-400.dtb \
                bcm2711-rpi-cm4.dtb bcm2711-rpi-cm4s.dtb
 DTBS_rpi5   := bcm2712-rpi-5-b.dtb bcm2712d0-rpi-5-b.dtb bcm2712-rpi-500.dtb \
                bcm2712-rpi-cm5-cm5io.dtb bcm2712-rpi-cm5l-cm5io.dtb
-DTBS_zero2w := bcm2710-rpi-zero-2-w.dtb
-DTBS_cm4    :=   # Covered by rpi4 build above
 
 # Remote DTS details
 REMOTE_DTS_URL := https://raw.githubusercontent.com/Jankyneering/mu-cell-bb-drivers/main/raspberry-pi-drivers/mu-cell-bb-dts/mu-cell-bb_raspberrypi.dts
@@ -50,11 +53,9 @@ REMOTE_DTS_NAME := mu-cell-bb_raspberrypi.dts
 REMOTE_DTS_SENTINEL := $(CUSTOM_DTS_DIR)/.remote_dts_downloaded
 
 # Per-board overlays (space-separated, without .dtbo extension)
-OVERLAYS_rpi3   := miniuart-bt
-OVERLAYS_rpi4   := miniuart-bt
-OVERLAYS_rpi5   := miniuart-bt
-OVERLAYS_zero2w := miniuart-bt
-OVERLAYS_cm4    := miniuart-bt
+OVERLAYS_rpi3 := miniuart-bt
+OVERLAYS_rpi4 := miniuart-bt
+OVERLAYS_rpi5 := miniuart-bt
 
 # Custom overlays applied to ALL boards (e.g. a HAT present on every device)
 OVERLAYS_COMMON := mu-cell-bb_raspberrypi
@@ -65,44 +66,57 @@ OVERLAYS_COMMON := mu-cell-bb_raspberrypi
 #   docker run -v rpi-buildroot-dl:/work/dl ...
 DL_DIR := $(CURDIR)/dl
 
-# How many targets to build in parallel.
-# 5 targets in parallel is safe with 128GB RAM on M4.
+# How many targets to build in parallel (for `make build-all`).
+# 3 targets in parallel is safe with 128GB RAM on M4.
 # Lower this if you want to leave headroom for other work.
-PARALLEL_TARGETS := 5
+PARALLEL_TARGETS := 3
 
 # Kernel image name (64-bit unified)
 KERNEL_IMAGE := Image
 
-# DTC from rpi4's host tools (built by Buildroot)
-DTC := $(OUTPUT_DIR)/rpi4/host/bin/dtc
+# DTC from the priority target's host tools (built by Buildroot)
+DTC := $(OUTPUT_DIR)/rpi3/host/bin/dtc
 
 # =============================================================================
 # Phony targets
 # =============================================================================
-.PHONY: all build-all dtbs merge-boot final-image clean clean-all \
-        $(addprefix dtbs-,$(TARGETS)) \
-        $(addprefix custom-dtbs-,$(TARGETS)) \
-        $(addprefix bootstrap-,$(TARGETS)) \
+.PHONY: all build build-all universal dtbs merge-boot final-image clean clean-all \
         check-builds help
 
-all: final-image
+# Default: build the priority target (rpi3) and show its ready-to-flash image.
+all: build
+	@echo ""
+	@echo ">>> Done: $(TARGET_IMAGE)"
+	@echo ">>> Flash with:"
+	@echo "    sudo dd if=$(TARGET_IMAGE) of=/dev/sdX bs=4M status=progress conv=fsync"
+
+build: build-$(TARGET)
+
+# Full multi-board flow: build every SoC family, merge, assemble universal image.
+universal: final-image
 
 help:
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "  all              Full build: compile everything + merge + final image"
-	@echo "  build-all        Build all targets in parallel"
+	@echo "  all              Build the priority target ($(TARGET)) — ready-to-flash sdcard.img"
+	@echo "  build            Same as 'all'"
 	@echo "  build-TARGET     Build one target        (e.g. make build-rpi4)"
+	@echo "  build-all        Build all targets in parallel"
+	@echo "  universal        Build everything + assemble the multi-board sdcard.img"
 	@echo "  bootstrap-TARGET First-time config setup (e.g. make bootstrap-rpi4)"
 	@echo "  dtbs             Copy and compile all DTBs (including custom)"
 	@echo "  merge-boot       Merge boot partitions into universal/boot/"
-	@echo "  final-image      Assemble the final sdcard.img"
+	@echo "  final-image      Assemble the universal sdcard.img"
 	@echo "  clean            Remove universal/ output only"
 	@echo "  clean-all        Remove ALL build output (preserves dl/ cache)"
 	@echo ""
-	@echo "  Targets: $(TARGETS)"
-	@echo "  CM5 uses rpi5 build output (same BCM2712 SoC)"
+	@echo "  Targets (one per SoC family):"
+	@echo "    rpi3   Pi 3B / 3B+ / Zero 2W / CM3   (BCM2710)"
+	@echo "    rpi4   Pi 4B / 400 / CM4 / CM4s     (BCM2711)"
+	@echo "    rpi5   Pi 5 / 500 / CM5             (BCM2712)"
+	@echo ""
+	@echo "  Override with: make TARGET=<target>"
 	@echo ""
 
 # =============================================================================
@@ -113,6 +127,9 @@ help:
 #   make -C buildroot O=output/<target> savedefconfig BR2_DEFCONFIG=configs/muneuron_<target>_defconfig
 # =============================================================================
 bootstrap-%:
+	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
+	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
+	fi
 	@echo ">>> Bootstrapping $* from $(UPSTREAM_DEFCONFIG_$*)"
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    $(UPSTREAM_DEFCONFIG_$*)
@@ -129,7 +146,26 @@ bootstrap-%:
 # build-all can skip already-finished targets.
 # =============================================================================
 build-%:
+	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
+	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
+	fi
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+	    echo "ERROR: native builds on macOS are not supported."; \
+	    echo "       Buildroot needs GNU coreutils, genimage and a Linux host"; \
+	    echo "       (merge_config.sh, image assembly, toolchain all assume it)."; \
+	    echo "       Use the documented Docker flow instead:"; \
+	    echo "         docker build -t rpi-buildroot ."; \
+	    echo "         docker run --rm -it -v $$(pwd):/work -w /work rpi-buildroot make"; \
+	    exit 1; \
+	fi
 	@echo ">>> Configuring $* from configs/$(DEFCONFIG_$*)"
+	# Cloud-storage bind mounts (Nextcloud/iCloud on macOS) can lose the execute
+	# bit inside the container, which breaks Buildroot's direct execution of the
+	# post-build hook ("bad interpreter: Permission denied"). Copy the script
+	# into the build output dir (a real volume) and point Buildroot at that copy.
+	@mkdir -p $(OUTPUT_DIR)/$*
+	@cp $(BOARD_DIR)/post-build.sh $(OUTPUT_DIR)/$*/post-build.sh
+	@chmod +x $(OUTPUT_DIR)/$*/post-build.sh
 	@if [ ! -f $(CURDIR)/configs/$(DEFCONFIG_$*) ]; then \
 	    echo "ERROR: configs/$(DEFCONFIG_$*) not found."; \
 	    echo "       Run 'make bootstrap-$*' first."; \
@@ -258,7 +294,7 @@ custom-dtbs-%: fetch-remote-dts
 	@mkdir -p $(UNIVERSAL_BOOT)/overlays
 	@if [ ! -f $(DTC) ]; then \
 	    echo "WARNING: dtc not found at $(DTC) — skipping custom DTBs."; \
-	    echo "         Run 'make build-rpi4' first to build host tools."; \
+	    echo "         Run 'make build-rpi3' first to build host tools."; \
 	else \
 	    for src in $(wildcard $(CUSTOM_DTS_DIR)/*.dts); do \
 	        name=$$(basename $$src .dts); \
@@ -309,7 +345,7 @@ merge-boot: build-all check-builds dtbs
 	# --- Kernels ---
 	# BCM2710 (rpi3/zero2w) and BCM2711 (rpi4/cm4) can share a kernel.
 	# BCM2712 (rpi5/cm5) needs its own — different SoC.
-	@for target_dest in "rpi4:kernel-rpi4.img" "rpi5:kernel-rpi5.img"; do \
+	@for target_dest in "rpi3:kernel-rpi3.img" "rpi4:kernel-rpi4.img" "rpi5:kernel-rpi5.img"; do \
 	    target=$$(echo $$target_dest | cut -d: -f1); \
 	    dest=$$(echo $$target_dest | cut -d: -f2); \
 	    src=$(OUTPUT_DIR)/$$target/images/$(KERNEL_IMAGE); \
@@ -356,10 +392,11 @@ merge-boot: build-all check-builds dtbs
 # =============================================================================
 # Uses genimage to produce a partitioned sdcard.img.
 # genimage.cfg must define a FAT boot partition + ext4 rootfs partition.
-# We use rpi4's rootfs as the shared userspace (all targets built identically).
+# We use the priority target's rootfs as the shared userspace (all targets
+# are built identically apart from the kernel/DTB set).
 GENIMAGE     := genimage
 GENIMAGE_CFG := $(BOARD_DIR)/genimage.cfg
-ROOTFS       := $(OUTPUT_DIR)/rpi4/images/rootfs.ext2  # ext4 is a symlink to this
+ROOTFS       := $(OUTPUT_DIR)/rpi3/images/rootfs.ext2  # ext4 is a symlink to this
 
 final-image: merge-boot
 	@echo ">>> Assembling final sdcard.img"
@@ -428,7 +465,7 @@ clean:
 	rm -rf $(OUTPUT_DIR)/universal
 	@echo "Per-target build outputs preserved."
 	@echo "To force a single target to rebuild: rm output/<target>/build.done"
-	@echo "To clean one target's build:         make -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/rpi4 clean"
+	@echo "To clean one target's build:         make -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/<target> clean"
 
 clean-all:
 	rm -rf $(OUTPUT_DIR)
