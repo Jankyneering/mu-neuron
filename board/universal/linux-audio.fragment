@@ -11,3 +11,6 @@ CONFIG_SND_BCM2835_SOC_I2S=y
 CONFIG_SND_SOC_SPDIF_TX=y
 CONFIG_SND_SOC_SPDIF_RX=y
 CONFIG_SND_SIMPLE_CARD=y
+# Expose the running kernel config via /proc/config.gz for diagnostics.
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
