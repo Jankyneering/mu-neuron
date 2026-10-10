@@ -225,7 +225,6 @@ def draw_header(draw, title):
     draw.text((64 - (6 * len(title)) // 2, 2), title, font=font, fill="black")
 
 def draw_splash(draw):
-    draw.rectangle([(0, 0), (127, 63)], outline="white")
     draw.text((31, 20), 'uNeuron', font=font, fill="white")
     version = get_os_version()
     if version:
@@ -287,6 +286,15 @@ def draw_halt_confirm_page(draw, seconds_left):
     draw.text((4, 36), 'Rotate to cancel', font=font, fill="white")
     draw.text((4, 50), 'Timeout: ' + str(seconds_left) + 's', font=font, fill="white")
 
+def set_panel_animation(panel, anim):
+    if panel is None:
+        return
+    try:
+        panel.set_animation(anim)
+    except OSError as e:
+        print(f"Rack UI: animation write failed: {e}", flush=True)
+
+
 def halt_system(panel):
     print("Halting system by user request", flush=True)
     oled.clear()
@@ -322,11 +330,7 @@ if __name__ == '__main__':
         halt_confirm_until = None
 
         # Boot splash
-        if panel is not None:
-            try:
-                panel.set_animation(RACK_UI_ANIM_FOLLOWING)
-            except OSError:
-                pass
+        set_panel_animation(panel, RACK_UI_ANIM_FOLLOWING)
         with canvas(oled) as draw:
             draw_splash(draw)
         time.sleep(splash_duration)
@@ -358,26 +362,19 @@ if __name__ == '__main__':
                             halt_confirm_until = timeNow + halt_confirm_timeout
                             displayTimeLast = 0.0
 
-                    # Any encoder activity wakes the display
-                    if (rotation != 0 or presses > 0) and displaySleep:
-                        displaySleep = False
-                        oled.show()
-                        if panel is not None:
-                            try:
-                                panel.set_animation(RACK_UI_ANIM_FOLLOWING)
-                            except OSError:
-                                pass
-                        displayTimeLast = 0.0
+                    if rotation != 0 or presses > 0:
+                        if displaySleep:
+                            displaySleep = False
+                            oled.show()
+                            set_panel_animation(panel, RACK_UI_ANIM_FOLLOWING)
+                            displayTimeLast = 0.0
+                        # Every interaction restarts the sleep countdown
                         displaySleepTimeLast = timeNow
 
             if not displaySleep and timeNow - displaySleepTimeLast >= display_sleep_time:
                 displaySleep = True
                 oled.hide()
-                if panel is not None:
-                    try:
-                        panel.set_animation(RACK_UI_ANIM_BREATHING)
-                    except OSError:
-                        pass
+                set_panel_animation(panel, RACK_UI_ANIM_BREATHING)
 
             if not displaySleep and timeNow - displayTimeLast >= display_refresh_interval:
                 if halt_confirm_until is not None:
