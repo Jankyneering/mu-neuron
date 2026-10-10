@@ -149,6 +149,15 @@ build-%:
 	@if [ -z "$(filter $*,$(TARGETS))" ]; then \
 	    echo "ERROR: unknown target '$*' (valid: $(TARGETS))"; exit 1; \
 	fi
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+	    echo "ERROR: native builds on macOS are not supported."; \
+	    echo "       Buildroot needs GNU coreutils, genimage and a Linux host"; \
+	    echo "       (merge_config.sh, image assembly, toolchain all assume it)."; \
+	    echo "       Use the documented Docker flow instead:"; \
+	    echo "         docker build -t rpi-buildroot ."; \
+	    echo "         docker run --rm -it -v $$(pwd):/work -w /work rpi-buildroot make"; \
+	    exit 1; \
+	fi
 	@echo ">>> Configuring $* from configs/$(DEFCONFIG_$*)"
 	@if [ ! -f $(CURDIR)/configs/$(DEFCONFIG_$*) ]; then \
 	    echo "ERROR: configs/$(DEFCONFIG_$*) not found."; \
