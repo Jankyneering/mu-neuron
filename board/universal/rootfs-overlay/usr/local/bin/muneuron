@@ -275,6 +275,11 @@ cmd_status() {
     printf '  DT overlay installed:   %s\n' "$(overlay_installed && echo yes || echo no)"
     printf '  SoapyMuCell registered: %s\n' "$(driver_registered && echo yes || echo no)"
     printf '  Driver repo checkout:   %s\n' "${MUCELL_INSTALL_DIR:-$HOME/mu-cell-bb-drivers}"
+    if command -v bluestation-bs >/dev/null 2>&1; then
+        printf '  bluestation-bs:          installed (%s)\n' "$(command -v bluestation-bs)"
+    else
+        printf '  bluestation-bs:          not installed\n'
+    fi
     printf '  System time:            %s\n' "$(date)"
     if pid=$(pidof ntpd 2>/dev/null || pgrep ntpd 2>/dev/null); then
         printf '  ntpd:                   running (pid %s)\n' "$pid"
