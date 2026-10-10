@@ -159,6 +159,10 @@ build-%:
 	    exit 1; \
 	fi
 	@echo ">>> Configuring $* from configs/$(DEFCONFIG_$*)"
+	# Cloud-storage mounts (Nextcloud/iCloud on macOS) don't reliably preserve
+	# the execute bit on bind-mounted scripts — restore it or Buildroot's
+	# post-build hook fails with "bad interpreter: Permission denied".
+	@chmod +x $(BOARD_DIR)/post-build.sh $(BOARD_DIR)/post-image.sh 2>/dev/null || true
 	@if [ ! -f $(CURDIR)/configs/$(DEFCONFIG_$*) ]; then \
 	    echo "ERROR: configs/$(DEFCONFIG_$*) not found."; \
 	    echo "       Run 'make bootstrap-$*' first."; \
