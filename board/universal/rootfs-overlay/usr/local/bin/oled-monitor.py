@@ -413,6 +413,12 @@ def diagnose_writes(panel):
                       flush=True)
             except OSError as e:
                 print(f"diag: {name} [{method}]: error {e}", flush=True)
+    # Leave the panel in a sane state (the diagnostic's last write sets
+    # the BREATHING animation)
+    try:
+        panel.set_animation(RACK_UI_ANIM_FOLLOWING)
+    except OSError:
+        pass
 
 
 def halt_system(panel):
