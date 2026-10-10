@@ -1,0 +1,87 @@
+name: Check tetra-bluestation updates
+
+# Weekly: check if a newer tetra-bluestation release is published upstream.
+# If so, bump the pinned version + sha256 and open a draft PR for review.
+# Never merges automatically — a human reviews and merges when ready.
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Mondays 07:00 UTC
+  workflow_dispatch: {}  # manual trigger from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: check-tetra-bluestation-updates
+  cancel-in-progress: true
+
+jobs:
+  check-and-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for newer release
+        id: check
+        run: |
+          MK="board/universal/packages/tetra-bluestation/tetra-bluestation.mk"
+          HASH="board/universal/packages/tetra-bluestation/tetra-bluestation.hash"
+          current=$(grep -m1 '^TETRA_BLUESTATION_VERSION' "$MK" | cut -d' ' -f3)
+          latest=$(curl -sfL -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest \
+            | grep -m1 '"tag_name"' | cut -d'"' -f4)
+
+          if [ -z "$latest" ]; then
+            echo "Could not reach GitHub API" >&2
+            exit 1
+          fi
+
+          if [ "$current" = "$latest" ]; then
+            echo "up-to-date ($current)"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "New release: $current -> $latest"
+          digest=$(curl -sfL -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest" \
+            | python3 -c "import json,sys; r=json.load(sys.stdin); \
+              print(next(a['digest'] for a in r['assets'] if a['name']=='bluestation-bs-aarch64-generic'))")
+          sha256=${digest#sha256:}
+
+          sed -i "s|^TETRA_BLUESTATION_VERSION = .*|TETRA_BLUESTATION_VERSION = $latest|" "$MK"
+          cat > "$HASH" <<EOF
+          # Locally computed:
+          sha256  $sha256  bluestation-bs-aarch64-generic
+          EOF
+
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft PR
+        if: steps.check.outputs.bump == 'true'
+        run: |
+          latest="${{ steps.check.outputs.latest }}"
+          branch="updates/tetra-bluestation-${latest}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add board/universal/packages/tetra-bluestation/
+          git commit -m "Bump tetra-bluestation to $latest"
+          git push origin "$branch"
+          gh pr create --draft --title "Bump tetra-bluestation to $latest" \
+            --body "Automated weekly check found a new tetra-bluestation release.
+
+          ## Summary
+          - Bumps the pinned prebuilt \`bluestation-bs\` binary from the previous pin to \`$latest\`
+          - Updates the sha256 in \`tetra-bluestation.hash\` from the release asset digest
+
+          ## Review checklist
+          - [ ] Check the upstream release notes for breaking changes
+          - [ ] Rebuild an image and smoke-test \`bluestation-bs\` on a board before merging" \
+            --head "$branch"
+        env:
+          GH_TOKEN: ${{ github.token }}

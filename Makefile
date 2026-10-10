@@ -95,6 +95,28 @@ build: build-$(TARGET)
 # Full multi-board flow: build every SoC family, merge, assemble universal image.
 universal: final-image
 
+# =============================================================================
+# Update check
+# =============================================================================
+# Compare pinned third-party package versions against their upstream latest.
+# No changes are made; this only reports what is available.
+TETRA_BLUESTATION_MK := $(BOARD_DIR)/packages/tetra-bluestation/tetra-bluestation.mk
+
+check-updates:
+	@echo ">>> Checking pinned package versions against upstream..."
+	@current=$$(grep -m1 '^TETRA_BLUESTATION_VERSION' $(TETRA_BLUESTATION_MK) | cut -d' ' -f3); \
+	latest=$$(curl -sfL -H 'Accept: application/vnd.github+json' \
+		https://api.github.com/repos/MidnightBlueLabs/tetra-bluestation/releases/latest \
+		| grep -m1 '"tag_name"' | cut -d'"' -f4); \
+	if [ -z "$$latest" ]; then \
+		echo "  tetra-bluestation: could not reach GitHub API"; \
+	elif [ "$$current" = "$$latest" ]; then \
+		echo "  tetra-bluestation: up-to-date ($$current)"; \
+	else \
+		echo "  tetra-bluestation: $$current -> available: $$latest"; \
+		echo "    bump TETRA_BLUESTATION_VERSION in $(TETRA_BLUESTATION_MK)"; \
+		echo "    and update the sha256 in tetra-bluestation.hash"; \
+	fi
 help:
 	@echo ""
 	@echo "Usage: make [target]"
