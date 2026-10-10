@@ -138,11 +138,11 @@ class RackUI:
         """Combined transfer: register pointer write + data bytes in a
         single transaction (repeated start, single STOP), mirroring the
         atomic read path so the pointer cannot desync mid-write."""
-        payload_buf = (ctypes.c_uint8 * len(values))(*values)
-        msgs = (I2cMsg * 1)(
-            I2cMsg(self.address, 0, 1 + len(values),
-                   (ctypes.c_uint8 * (1 + len(values)))(reg, *values)),
-        )
+        # The buffer must stay referenced for the lifetime of the ioctl:
+        # I2cMsg only holds a raw pointer, so a temporary would be freed
+        # before the kernel copies the message.
+        buf = (ctypes.c_uint8 * (1 + len(values)))(reg, *values)
+        msgs = (I2cMsg * 1)(I2cMsg(self.address, 0, len(buf), buf))
         payload = I2cRdwrIoctlData(msgs, 1)
         fcntl.ioctl(self.fd, I2C_RDWR, payload)
 
