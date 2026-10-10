@@ -74,19 +74,25 @@ class RackUI:
 
     def __init__(self, bus=RACK_UI_BUS, address=RACK_UI_ADDR):
         self.address = address
+        self.animation_state = None
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, address)
-        # Ask for reset-on-read and check whether the write actually stuck
-        self.write_reg(RACK_UI_REG_CONFIG, 0x03)
-        self.reset_on_read = (self.read_reg(RACK_UI_REG_CONFIG) & 0x03) == 0x03
+        # Ask for reset-on-read and verify with a few retries: a single
+        # read-back right after the write can be corrupted by bus glitches
+        self.reset_on_read = False
+        for _ in range(5):
+            self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+            config, _, _ = self.read_status()
+            if (config & 0x03) == 0x03:
+                self.reset_on_read = True
+                break
+            time.sleep(0.05)
         if self.reset_on_read:
             # Discard any events that predate startup
-            self.read_reg16(RACK_UI_REG_ROTATION)
-            self.read_reg(RACK_UI_REG_PUSH_COUNT)
+            _, _, _ = self.read_status()
         else:
             print("Rack UI: reset-on-read not supported, using delta mode", flush=True)
-            self.last_rotation = self.read_reg16(RACK_UI_REG_ROTATION)
-            self.last_presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
+            self.resync_baseline()
 
     def read_regs(self, reg, length):
         """Combined transfer: set the register pointer, then read `length`
@@ -107,25 +113,46 @@ class RackUI:
     def read_reg16(self, reg):
         return struct.unpack(">h", self.read_regs(reg, 2))[0]
 
+    def write_regs(self, reg, values):
+        """Combined transfer: register pointer write + data bytes in a
+        single transaction (repeated start, single STOP), mirroring the
+        atomic read path so the pointer cannot desync mid-write."""
+        payload_buf = (ctypes.c_uint8 * len(values))(*values)
+        msgs = (I2cMsg * 1)(
+            I2cMsg(self.address, 0, 1 + len(values),
+                   (ctypes.c_uint8 * (1 + len(values)))(reg, *values)),
+        )
+        payload = I2cRdwrIoctlData(msgs, 1)
+        fcntl.ioctl(self.fd, I2C_RDWR, payload)
+
     def write_reg(self, reg, value):
-        os.write(self.fd, bytes([reg, value]))
+        self.write_regs(reg, [value])
 
     def set_animation(self, anim):
+        if anim == self.animation_state:
+            return
+        # Write and verify: the animation register is the clearest signal
+        # of a pointer desync, so a failed write is retried once
         self.write_reg(RACK_UI_REG_ANIMATION, anim)
+        for _ in range(2):
+            if self.read_reg(RACK_UI_REG_ANIMATION) == anim:
+                self.animation_state = anim
+                print(f"Rack UI: animation set to 0x{anim:02X}", flush=True)
+                return
+            self.write_reg(RACK_UI_REG_ANIMATION, anim)
+        print(f"Rack UI: animation write failed to stick (0x{anim:02X})", flush=True)
+        self.animation_state = None
 
-    def sync_config(self):
-        """Re-arm reset-on-read if the panel watchdog has reset the MCU.
+    def read_status(self):
+        """Coherent snapshot of config, rotation count and push count in a
+        single combined transfer (auto-increment from register 0x03)."""
+        config, rot_hi, rot_lo, presses = self.read_regs(RACK_UI_REG_CONFIG, 4)
+        rotation = struct.unpack(">h", bytes([rot_hi, rot_lo]))[0]
+        return config, rotation, presses
 
-        Registers revert to defaults on a panel reset; the counters may then
-        hold stale events, which are read and discarded so they are not
-        acted on. Only meaningful in reset-on-read mode.
-        """
-        if (self.read_reg(RACK_UI_REG_CONFIG) & 0x03) != 0x03:
-            self.write_reg(RACK_UI_REG_CONFIG, 0x03)
-            self.read_reg16(RACK_UI_REG_ROTATION)
-            self.read_reg(RACK_UI_REG_PUSH_COUNT)
-            return True
-        return False
+    def resync_baseline(self):
+        """Re-read the counters to re-establish the delta-mode baseline."""
+        _, self.last_rotation, self.last_presses = self.read_status()
 
     def poll(self):
         """Return (rotation_delta, new_presses) since the previous poll.
@@ -134,21 +161,24 @@ class RackUI:
         discarded and the baseline is resynchronised instead of acted on.
         """
         if self.reset_on_read:
-            if self.sync_config():
+            config, rotation, presses = self.read_status()
+            if (config & 0x03) != 0x03:
+                # Panel watchdog reset: re-arm and discard stale counters
+                self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+                self.read_status()
                 return 0, 0
-            rotation = self.read_reg16(RACK_UI_REG_ROTATION)
-            presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
-        else:
-            rotation_abs = self.read_reg16(RACK_UI_REG_ROTATION)
-            presses_abs = self.read_reg(RACK_UI_REG_PUSH_COUNT)
-            rotation = rotation_abs - self.last_rotation
-            rotation = struct.unpack(">h", struct.pack(">H", rotation & 0xFFFF))[0]
-            presses = (presses_abs - self.last_presses) & 0xFF
-            self.last_rotation = rotation_abs
-            self.last_presses = presses_abs
+            return rotation, presses
+
+        _, rotation_abs, presses_abs = self.read_status()
+        rotation = rotation_abs - self.last_rotation
+        rotation = struct.unpack(">h", struct.pack(">H", rotation & 0xFFFF))[0]
+        presses = (presses_abs - self.last_presses) & 0xFF
         if abs(rotation) > max_plausible_rotation or presses > max_plausible_presses:
             print(f"encoder: implausible event dropped (rot {rotation}, presses {presses})", flush=True)
+            self.resync_baseline()
             return 0, 0
+        self.last_rotation = rotation_abs
+        self.last_presses = presses_abs
         return rotation, presses
 
     def close(self):
