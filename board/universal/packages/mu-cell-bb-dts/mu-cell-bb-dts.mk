@@ -1,4 +1,4 @@
-MU_CELL_BB_DTS_VERSION     = 6714e1b29cda643a53d8086789d41e9f99a80c9e
+MU_CELL_BB_DTS_VERSION     = 6714e1b29cda978d9f41b3e3badf91915623b335
 MU_CELL_BB_DTS_SITE        = https://github.com/Jankyneering/mu-cell-bb-drivers
 MU_CELL_BB_DTS_SITE_METHOD = git
 MU_CELL_BB_DTS_LICENSE     = MIT
