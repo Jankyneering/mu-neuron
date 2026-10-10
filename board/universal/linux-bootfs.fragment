@@ -1,0 +1,9 @@
+# Kernel config fragment for accessing the FAT boot partition after boot.
+# The SD card files (config.txt, cmdline.txt, config.toml, ...) are on a
+# FAT16/32 partition that must stay mountable from Linux so they can be
+# inspected and edited on the running board (mounted at /boot, see
+# rootfs-overlay/etc/fstab and the S02fstab init script).
+CONFIG_FS_FAT=y
+CONFIG_VFAT_FS=y
+CONFIG_NLS_CODEPAGE_437=y
+CONFIG_NLS_ISO8859_1=y

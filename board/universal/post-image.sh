@@ -15,7 +15,21 @@ GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 GENIMAGE_CFG="${BINARIES_DIR}/genimage.cfg"
 
 # Files for the FAT partition: DTBs at the root, rpi-firmware contents,
-# the kernel from the [all] section of the current config.txt.
+# the kernel from the [all] section of the current config.txt, and the
+# bluestation-bs config.toml.
+# The config.toml is user-editable on the FAT partition; keep a pristine copy
+# in the board directory so rebuilds always stage the tracked version.
+# This script runs from the Buildroot output directory (or has BR2_CONFIG set),
+# so walk up to the tree root marked by external.desc.
+TOPDIR="$(dirname "${BR2_CONFIG:-$0}")"
+while [ -n "$TOPDIR" ] && [ "$TOPDIR" != "/" ] && [ ! -f "$TOPDIR/external.desc" ]; do
+    TOPDIR="${TOPDIR%/*}"
+done
+if [ -n "$TOPDIR" ] && [ "$TOPDIR" != "/" ] && [ -f "$TOPDIR/board/universal/bluestation-bs/config.toml" ]; then
+    cp "$TOPDIR/board/universal/bluestation-bs/config.toml" "${BINARIES_DIR}/config.toml"
+else
+    echo "WARNING: could not stage config.toml from the µNeuron tree root" >&2
+fi
 FILES=()
 for i in "${BINARIES_DIR}"/*.dtb "${BINARIES_DIR}"/rpi-firmware/*; do
 	FILES+=( "${i#${BINARIES_DIR}/}" )
@@ -27,6 +41,12 @@ if [ -z "${KERNEL}" ]; then
 	exit 1
 fi
 FILES+=( "${KERNEL}" )
+
+if [ -f "${BINARIES_DIR}/config.toml" ]; then
+	FILES+=( "config.toml" )
+else
+	echo "WARNING: no config.toml staged for the FAT partition (bluestation-bs will have no config)" >&2
+fi
 
 # The [piN] kernel= overrides in config.txt select per-family kernels in the
 # universal multi-board image. This per-board image ships a single kernel

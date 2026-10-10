@@ -237,12 +237,15 @@ restage-boot-%:
 	fi
 	@if [ -d $(OUTPUT_DIR)/$*/images/rpi-firmware ]; then \
 	    cp $(BOARD_DIR)/config.txt $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt; \
-	    echo ">>> Restaged config.txt for $*"; \
+	    cp $(BOARD_DIR)/bluestation-bs/config.toml $(OUTPUT_DIR)/$*/images/config.toml; \
+	    echo ">>> Restaged config.txt and config.toml for $*"; \
 	    echo ">>> Regenerating $* disk image (target-post-image)"; \
 	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
 	        BR2_DL_DIR=$(DL_DIR) target-post-image || exit 1; \
 	    grep -q "i2c-gpio" $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt \
 	        || { echo "ERROR: restaged config.txt missing i2c-gpio"; exit 1; }; \
+	    grep -q "config_version" $(OUTPUT_DIR)/$*/images/config.toml \
+	        || { echo "ERROR: restaged config.toml missing config_version"; exit 1; }; \
 	else \
 	    echo "WARNING: no images/rpi-firmware for $*, skipping restage"; \
 	fi
@@ -441,6 +444,7 @@ merge-boot: build-all check-builds dtbs
 	fi
 	cp $(BOARD_DIR)/config.txt  $(UNIVERSAL_BOOT)/
 	cp $(BOARD_DIR)/cmdline.txt $(UNIVERSAL_BOOT)/
+	cp $(BOARD_DIR)/bluestation-bs/config.toml $(UNIVERSAL_BOOT)/
 
 	@echo ""
 	@echo ">>> Boot partition contents:"
