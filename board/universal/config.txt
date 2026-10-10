@@ -14,7 +14,9 @@ arm_64bit=1
 kernel=Image
 dtoverlay=miniuart-bt
 dtparam=i2c_arm=on
-dtparam=i2c_arm_baudrate=400000
+# Rack UI panel (I2C slave @ 0x36) is specified for 100 kHz; the OLED
+# tolerates 400 kHz but the bus must respect the slowest device
+dtparam=i2c_arm_baudrate=100000
 enable_uart=1
 dtparam=spi=on
 dtoverlay=mu-cell-bb_raspberrypi
