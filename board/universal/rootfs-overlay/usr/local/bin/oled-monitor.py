@@ -2,6 +2,7 @@ import time
 import os
 import fcntl
 import struct
+import ctypes
 import psutil
 import queue
 from socket import AddressFamily
@@ -20,30 +21,62 @@ RACK_UI_ADDR = 0x36
 RACK_UI_REG_CONFIG = 0x03
 RACK_UI_REG_ROTATION = 0x04
 RACK_UI_REG_PUSH_COUNT = 0x06
+RACK_UI_REG_ANIMATION = 0x0E
+RACK_UI_ANIM_IDLE = 0x00
+RACK_UI_ANIM_BREATHING = 0x04
+RACK_UI_ANIM_FOLLOWING = 0x80
 
 I2C_SLAVE = 0x0703
+I2C_RDWR = 0x0707
+I2C_M_RD = 0x0001
+
+# A single poll interval is short enough that these deltas can only come
+# from a desynchronised register pointer, not a human hand: discard them.
+max_plausible_rotation = 32
+max_plausible_presses = 10
 
 # Halt confirmation window in seconds
 halt_confirm_timeout = 10
+
+# Display blanks after this many seconds without encoder activity
+display_sleep_time = 30
+
+# Splash screen duration in seconds
+splash_duration = 3
+
+
+class I2cMsg(ctypes.Structure):
+    _fields_ = [
+        ("addr", ctypes.c_uint16),
+        ("flags", ctypes.c_uint16),
+        ("len", ctypes.c_uint16),
+        ("buf", ctypes.POINTER(ctypes.c_uint8)),
+    ]
+
+
+class I2cRdwrIoctlData(ctypes.Structure):
+    _fields_ = [("msgs", ctypes.POINTER(I2cMsg)), ("nmsgs", ctypes.c_uint32)]
 
 
 class RackUI:
     """Register access to the Rack UI front panel controller.
 
+    All reads use a single combined I2C transfer (register pointer write +
+    repeated-start read, one STOP), so nothing on the bus can interleave
+    between the pointer set and the read and desynchronise the pointer.
+
     The panel exposes a rotary encoder and a push button as event counters.
-    With config bits 0 and 1 set, both counters are cleared after being read,
-    so each poll returns only the events that happened since the last poll.
-    The panel watchdog soft-resets the MCU if the firmware hangs, which
-    restores register defaults, so the config is re-verified on every poll.
+    With config bits 0 and 1 set, both counters are cleared after being
+    read, so each poll returns only the events since the previous poll.
+    If the panel firmware does not persist the config write, the counters
+    accumulate and deltas are computed on the host instead.
     """
 
     def __init__(self, bus=RACK_UI_BUS, address=RACK_UI_ADDR):
+        self.address = address
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, address)
-        # Ask for reset-on-read and check whether the write actually stuck:
-        # older panel firmware may not persist config writes, in which case
-        # the counters accumulate forever and deltas must be computed on the
-        # host instead of relying on the clear-after-read behaviour.
+        # Ask for reset-on-read and check whether the write actually stuck
         self.write_reg(RACK_UI_REG_CONFIG, 0x03)
         self.reset_on_read = (self.read_reg(RACK_UI_REG_CONFIG) & 0x03) == 0x03
         if self.reset_on_read:
@@ -54,6 +87,31 @@ class RackUI:
             print("Rack UI: reset-on-read not supported, using delta mode", flush=True)
             self.last_rotation = self.read_reg16(RACK_UI_REG_ROTATION)
             self.last_presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
+
+    def read_regs(self, reg, length):
+        """Combined transfer: set the register pointer, then read `length`
+        bytes in the same transaction (repeated start, single STOP)."""
+        pointer = (ctypes.c_uint8 * 1)(reg)
+        data = (ctypes.c_uint8 * length)()
+        msgs = (I2cMsg * 2)(
+            I2cMsg(self.address, 0, 1, pointer),
+            I2cMsg(self.address, I2C_M_RD, length, data),
+        )
+        payload = I2cRdwrIoctlData(msgs, 2)
+        fcntl.ioctl(self.fd, I2C_RDWR, payload)
+        return bytes(data)
+
+    def read_reg(self, reg):
+        return self.read_regs(reg, 1)[0]
+
+    def read_reg16(self, reg):
+        return struct.unpack(">h", self.read_regs(reg, 2))[0]
+
+    def write_reg(self, reg, value):
+        os.write(self.fd, bytes([reg, value]))
+
+    def set_animation(self, anim):
+        self.write_reg(RACK_UI_REG_ANIMATION, anim)
 
     def sync_config(self):
         """Re-arm reset-on-read if the panel watchdog has reset the MCU.
@@ -69,33 +127,29 @@ class RackUI:
             return True
         return False
 
-    def read_reg(self, reg):
-        os.write(self.fd, bytes([reg]))
-        return os.read(self.fd, 1)[0]
-
-    def read_reg16(self, reg):
-        os.write(self.fd, bytes([reg]))
-        return struct.unpack(">h", os.read(self.fd, 2))[0]
-
-    def write_reg(self, reg, value):
-        os.write(self.fd, bytes([reg, value]))
-
     def poll(self):
-        """Return (rotation_delta, new_presses) since the previous poll."""
+        """Return (rotation_delta, new_presses) since the previous poll.
+
+        Implausible deltas (pointer desynchronisation, bus glitches) are
+        discarded and the baseline is resynchronised instead of acted on.
+        """
         if self.reset_on_read:
             if self.sync_config():
                 return 0, 0
             rotation = self.read_reg16(RACK_UI_REG_ROTATION)
             presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
-            return rotation, presses
-        rotation = self.read_reg16(RACK_UI_REG_ROTATION)
-        presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
-        delta_rotation = rotation - self.last_rotation
-        delta_rotation = struct.unpack(">h", struct.pack(">H", delta_rotation & 0xFFFF))[0]
-        delta_presses = (presses - self.last_presses) & 0xFF
-        self.last_rotation = rotation
-        self.last_presses = presses
-        return delta_rotation, delta_presses
+        else:
+            rotation_abs = self.read_reg16(RACK_UI_REG_ROTATION)
+            presses_abs = self.read_reg(RACK_UI_REG_PUSH_COUNT)
+            rotation = rotation_abs - self.last_rotation
+            rotation = struct.unpack(">h", struct.pack(">H", rotation & 0xFFFF))[0]
+            presses = (presses_abs - self.last_presses) & 0xFF
+            self.last_rotation = rotation_abs
+            self.last_presses = presses_abs
+        if abs(rotation) > max_plausible_rotation or presses > max_plausible_presses:
+            print(f"encoder: implausible event dropped (rot {rotation}, presses {presses})", flush=True)
+            return 0, 0
+        return rotation, presses
 
     def close(self):
         os.close(self.fd)
@@ -156,9 +210,27 @@ def update_queues():
             q.get()
         q.put(val)
 
+def get_os_version():
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return ""
+
 def draw_header(draw, title):
     draw.rectangle([(0, 0), (127, 15)], fill="white", outline=0)
     draw.text((64 - (6 * len(title)) // 2, 2), title, font=font, fill="black")
+
+def draw_splash(draw):
+    draw.rectangle([(0, 0), (127, 63)], outline="white")
+    draw.text((31, 20), 'uNeuron', font=font, fill="white")
+    version = get_os_version()
+    if version:
+        draw.text((64 - (6 * len(version)) // 2, 34), version, font=font, fill="white")
+    draw.text((13, 50), 'SDR base station OS', font=font, fill="white")
 
 def draw_stats_page(draw):
     private_ip = get_IP()
@@ -215,15 +287,21 @@ def draw_halt_confirm_page(draw, seconds_left):
     draw.text((4, 36), 'Rotate to cancel', font=font, fill="white")
     draw.text((4, 50), 'Timeout: ' + str(seconds_left) + 's', font=font, fill="white")
 
-def halt_system():
+def halt_system(panel):
     print("Halting system by user request", flush=True)
+    oled.clear()
+    oled.hide()
+    if panel is not None:
+        try:
+            panel.set_animation(RACK_UI_ANIM_IDLE)
+        except OSError:
+            pass
     os.system("halt")
 
 if __name__ == '__main__':
     init_graph_queues(zero=True)
     display_refresh_interval = 2.5
     queue_refresh_interval = display_refresh_interval
-    display_sleep_time = 30
     encoder_poll_interval = 0.1
 
     try:
@@ -243,13 +321,19 @@ if __name__ == '__main__':
         pages = [draw_stats_page, draw_info_page, draw_halt_page]
         halt_confirm_until = None
 
+        # Boot splash
+        if panel is not None:
+            try:
+                panel.set_animation(RACK_UI_ANIM_FOLLOWING)
+            except OSError:
+                pass
+        with canvas(oled) as draw:
+            draw_splash(draw)
+        time.sleep(splash_duration)
+        displaySleepTimeLast = time.time()
+
         while True:
             timeNow = time.time()
-
-            # if not displaySleep and timeNow - displaySleepTimeLast >= display_sleep_time:
-            #     oled.hide()
-            #     displaySleep = True
-            #     displaySleepTimeLast = timeNow
 
             if panel is not None:
                 if timeNow - encoderPollLast >= encoder_poll_interval:
@@ -261,7 +345,7 @@ if __name__ == '__main__':
                     if halt_confirm_until is not None:
                         if presses > 0:
                             halt_confirm_until = None
-                            halt_system()
+                            halt_system(panel)
                         elif rotation != 0 or timeNow >= halt_confirm_until:
                             halt_confirm_until = None
                             displayTimeLast = 0.0
@@ -273,6 +357,27 @@ if __name__ == '__main__':
                         if presses > 0 and pages[page] is draw_halt_page:
                             halt_confirm_until = timeNow + halt_confirm_timeout
                             displayTimeLast = 0.0
+
+                    # Any encoder activity wakes the display
+                    if (rotation != 0 or presses > 0) and displaySleep:
+                        displaySleep = False
+                        oled.show()
+                        if panel is not None:
+                            try:
+                                panel.set_animation(RACK_UI_ANIM_FOLLOWING)
+                            except OSError:
+                                pass
+                        displayTimeLast = 0.0
+                        displaySleepTimeLast = timeNow
+
+            if not displaySleep and timeNow - displaySleepTimeLast >= display_sleep_time:
+                displaySleep = True
+                oled.hide()
+                if panel is not None:
+                    try:
+                        panel.set_animation(RACK_UI_ANIM_BREATHING)
+                    except OSError:
+                        pass
 
             if not displaySleep and timeNow - displayTimeLast >= display_refresh_interval:
                 if halt_confirm_until is not None:
