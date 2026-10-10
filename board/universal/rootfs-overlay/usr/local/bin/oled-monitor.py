@@ -40,16 +40,29 @@ class RackUI:
     def __init__(self, bus=RACK_UI_BUS, address=RACK_UI_ADDR):
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, address)
-        self.sync_config()
+        # Ask for reset-on-read and check whether the write actually stuck:
+        # older panel firmware may not persist config writes, in which case
+        # the counters accumulate forever and deltas must be computed on the
+        # host instead of relying on the clear-after-read behaviour.
+        self.write_reg(RACK_UI_REG_CONFIG, 0x03)
+        self.reset_on_read = (self.read_reg(RACK_UI_REG_CONFIG) & 0x03) == 0x03
+        if self.reset_on_read:
+            # Discard any events that predate startup
+            self.read_reg16(RACK_UI_REG_ROTATION)
+            self.read_reg(RACK_UI_REG_PUSH_COUNT)
+        else:
+            print("Rack UI: reset-on-read not supported, using delta mode", flush=True)
+            self.last_rotation = self.read_reg16(RACK_UI_REG_ROTATION)
+            self.last_presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
 
     def sync_config(self):
-        """Ensure reset-on-read is active; re-arm it after a panel reset.
+        """Re-arm reset-on-read if the panel watchdog has reset the MCU.
 
-        Returns True if the config had drifted (i.e. the panel reset since
-        the last poll), in which case the counters may hold stale events:
-        they are read and discarded so the stale events are not acted on.
+        Registers revert to defaults on a panel reset; the counters may then
+        hold stale events, which are read and discarded so they are not
+        acted on. Only meaningful in reset-on-read mode.
         """
-        if self.read_reg(RACK_UI_REG_CONFIG) != 0x03:
+        if (self.read_reg(RACK_UI_REG_CONFIG) & 0x03) != 0x03:
             self.write_reg(RACK_UI_REG_CONFIG, 0x03)
             self.read_reg16(RACK_UI_REG_ROTATION)
             self.read_reg(RACK_UI_REG_PUSH_COUNT)
@@ -69,11 +82,20 @@ class RackUI:
 
     def poll(self):
         """Return (rotation_delta, new_presses) since the previous poll."""
-        if self.sync_config():
-            return 0, 0
+        if self.reset_on_read:
+            if self.sync_config():
+                return 0, 0
+            rotation = self.read_reg16(RACK_UI_REG_ROTATION)
+            presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
+            return rotation, presses
         rotation = self.read_reg16(RACK_UI_REG_ROTATION)
         presses = self.read_reg(RACK_UI_REG_PUSH_COUNT)
-        return rotation, presses
+        delta_rotation = rotation - self.last_rotation
+        delta_rotation = struct.unpack(">h", struct.pack(">H", delta_rotation & 0xFFFF))[0]
+        delta_presses = (presses - self.last_presses) & 0xFF
+        self.last_rotation = rotation
+        self.last_presses = presses
+        return delta_rotation, delta_presses
 
     def close(self):
         os.close(self.fd)
