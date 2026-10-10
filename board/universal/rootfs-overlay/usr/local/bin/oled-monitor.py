@@ -24,7 +24,7 @@ RACK_UI_REG_CONFIG = 0x03
 RACK_UI_REG_ROTATION = 0x04
 RACK_UI_REG_PUSH_COUNT = 0x06
 RACK_UI_REG_ANIMATION = 0x0E
-RACK_UI_ANIM_IDLE = 0x00
+RACK_UI_ANIM_ALL_OFF = 0xFF
 RACK_UI_ANIM_BREATHING = 0x04
 RACK_UI_ANIM_FOLLOWING = 0x80
 
@@ -440,7 +440,9 @@ def halt_system(panel):
     oled.hide()
     if panel is not None:
         try:
-            panel.set_animation(RACK_UI_ANIM_IDLE)
+            # ALL_OFF actually blanks the LEDs; IDLE would leave them at
+            # whatever brightness the last animation wrote
+            panel.set_animation(RACK_UI_ANIM_ALL_OFF)
         except OSError:
             pass
     os.system("halt")
