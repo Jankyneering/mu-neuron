@@ -238,11 +238,13 @@ restage-boot-%:
 	@if [ -d $(OUTPUT_DIR)/$*/images/rpi-firmware ]; then \
 	    cp $(BOARD_DIR)/config.txt $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt; \
 	    echo ">>> Restaged config.txt for $*"; \
-	    # Regenerate the disk image so the FAT partition picks up the new \
-	    # boot config; rpi-firmware stamps alone do not trigger this. \
-	    rm -f $(OUTPUT_DIR)/$*/build/images/rpi-firmware/.stamp_images_installed; \
+	    echo ">>> Regenerating $* disk image (target-post-image)"; \
 	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
-	        BR2_DL_DIR=$(DL_DIR) 2>/dev/null || true; \
+	        BR2_DL_DIR=$(DL_DIR) target-post-image || exit 1; \
+	    grep -q "i2c-gpio" $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt \
+	        || { echo "ERROR: restaged config.txt missing i2c-gpio"; exit 1; }; \
+	else \
+	    echo "WARNING: no images/rpi-firmware for $*, skipping restage"; \
 	fi
 
 # Build all targets in parallel.
