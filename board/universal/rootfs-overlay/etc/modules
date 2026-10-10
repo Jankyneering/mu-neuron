@@ -1,7 +1,9 @@
 # /etc/modules — loaded at boot by /etc/init.d/S05modules
-# i2c-bcm2835: BCM283x I2C controller driver (creates the I2C adapter)
+# i2c-gpio:    bit-banged I2C master on GPIO2/3 (the BCM2835 BSC hardware
+#              controller does not honor SCL clock stretching, which breaks
+#              writes to the Rack UI panel; see config.txt)
 # i2c-dev:     exposes /dev/i2c-N to userspace (required by smbus2/luma)
-i2c-bcm2835
+i2c-gpio
 i2c-dev
 # snd-soc-spdif-rx/tx: dummy SPDIF codecs used by the µCell BB "SX1255"
 # simple-audio-card. They are built as modules (=m) and there is no udev on

@@ -1,5 +1,6 @@
 import time
 import os
+import glob
 import fcntl
 import struct
 import ctypes
@@ -16,7 +17,6 @@ max_temp_graph = 80
 min_temp_graph = 15
 
 # Rack UI front panel (I2C peripheral)
-RACK_UI_BUS = 1
 RACK_UI_ADDR = 0x36
 RACK_UI_REG_VERSION = 0x00
 RACK_UI_REG_CONFIG = 0x03
@@ -59,6 +59,28 @@ class I2cRdwrIoctlData(ctypes.Structure):
     _fields_ = [("msgs", ctypes.POINTER(I2cMsg)), ("nmsgs", ctypes.c_uint32)]
 
 
+def find_panel_bus(address=RACK_UI_ADDR):
+    """Return the i2c adapter number where the panel answers, probing all
+    /dev/i2c-* adapters (the i2c-gpio overlay number is dynamic)."""
+    for bus in sorted(glob.glob("/dev/i2c-*")):
+        try:
+            number = int(bus.split("-")[-1])
+            fd = os.open(bus, os.O_RDWR)
+        except (OSError, ValueError):
+            continue
+        try:
+            fcntl.ioctl(fd, I2C_SLAVE, address)
+            os.write(fd, bytes([RACK_UI_REG_VERSION]))
+            version = os.read(fd, 2)
+            if len(version) == 2:
+                return number
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return None
+
+
 class RackUI:
     """Register access to the Rack UI front panel controller.
 
@@ -73,7 +95,10 @@ class RackUI:
     accumulate and deltas are computed on the host instead.
     """
 
-    def __init__(self, bus=RACK_UI_BUS, address=RACK_UI_ADDR):
+    def __init__(self, address=RACK_UI_ADDR):
+        bus = find_panel_bus(address)
+        if bus is None:
+            raise OSError("Rack UI panel not found on any i2c bus")
         self.address = address
         self.animation_state = None
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
@@ -219,7 +244,8 @@ class RackUI:
 
 
 # Create display
-serial = i2c(port=1, address=0x3C)  # Change address to 0x3D if needed
+PANEL_BUS = find_panel_bus() or 1
+serial = i2c(port=PANEL_BUS, address=0x3C)  # Change address to 0x3D if needed
 oled = ssd1306(serial, width=128, height=64)
 
 width = oled.width
