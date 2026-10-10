@@ -3,3 +3,4 @@ source "$BR2_EXTERNAL_MU_NEURON_PATH/board/universal/packages/python-luma-core/C
 source "$BR2_EXTERNAL_MU_NEURON_PATH/board/universal/packages/python-luma-oled/Config.in"
 source "$BR2_EXTERNAL_MU_NEURON_PATH/board/universal/packages/soapy-mu-cell/Config.in"
 source "$BR2_EXTERNAL_MU_NEURON_PATH/board/universal/packages/mu-cell-bb-dts/Config.in"
+source "$BR2_EXTERNAL_MU_NEURON_PATH/board/universal/packages/tetra-bluestation/Config.in"
