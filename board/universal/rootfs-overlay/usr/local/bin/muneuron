@@ -28,8 +28,8 @@ DOCS_URL="https://github.com/Jankyneering/mu-cell/blob/main/docs/quickStartGuide
 
 RED=""; GREEN=""; YELLOW=""; NC=""
 if [ -t 1 ]; then
-    RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"
-    NC="\033[0m"
+    RED="[0;31m"; GREEN="[0;32m"; YELLOW="[1;33m"
+    NC="[0m"
 fi
 
 info()  { printf '%s[INFO]%s  %s\n' "$GREEN" "$NC" "$*"; }
@@ -75,6 +75,40 @@ Environment:
 EOF
 }
 
+# One-shot NTP sync when the clock is obviously wrong (e.g. epoch after
+# boot without a working RTC). TLS certificate validation fails otherwise.
+ensure_clock_synced() {
+    year=$(date +%Y)
+    case "$year" in
+        20[3-9]*) return 0 ;;
+    esac
+
+    warn "System clock looks wrong ($(date)). Attempting one-shot NTP sync..."
+    if ! command -v ntpd >/dev/null 2>&1; then
+        warn "ntpd not found; cannot sync the clock automatically."
+        return 1
+    fi
+
+    ntpd -q -N -p 0.pool.ntp.org -p 1.pool.ntp.org &
+    ntpd_pid=$!
+    i=0
+    while [ $i -lt 30 ]; do
+        year=$(date +%Y)
+        case "$year" in
+            20[3-9]*)
+                kill "$ntpd_pid" 2>/dev/null
+                info "Clock synced: $(date)"
+                return 0
+                ;;
+        esac
+        i=$((i + 1))
+        sleep 1
+    done
+    kill "$ntpd_pid" 2>/dev/null
+    warn "NTP sync timed out. HTTPS may fail until the clock is correct."
+    return 1
+}
+
 fetch_install_script() {
     if [ -f "$INSTALL_SCRIPT" ]; then
         info "Using cached installer: $INSTALL_SCRIPT"
@@ -99,6 +133,7 @@ fetch_install_script() {
 run_install_script() {
     action="$1"; shift
 
+    ensure_clock_synced || true
     fetch_install_script || return 1
 
     info "Running installer ($action)..."
