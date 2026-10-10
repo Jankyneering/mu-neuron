@@ -5,6 +5,9 @@
 # NOTE: for the universal multi-board image (merge-boot target), the
 # Makefile copies this same file but the [piN] kernel= lines are what
 # select the right kernel per board at runtime.
+#
+# Section order matters: lines in [all] apply first, then the matching
+# [piN] section overrides kernel= for that SoC family.
 
 [all]
 arm_64bit=1
@@ -13,3 +16,15 @@ dtoverlay=miniuart-bt
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 enable_uart=1
+
+# Per-SoC-family kernel selection for the universal multi-board image.
+# Per-board builds ignore these sections (they ship a single kernel=Image
+# and genimage renames it, so [all] kernel=Image never matches there either).
+[pi3]
+kernel=kernel-rpi3.img
+
+[pi4]
+kernel=kernel-rpi4.img
+
+[pi5]
+kernel=kernel-rpi5.img
