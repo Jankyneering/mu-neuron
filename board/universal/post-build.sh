@@ -19,14 +19,18 @@ if [ -z "$TOPDIR" ] || [ "$TOPDIR" = "/" ] || [ ! -f "$TOPDIR/external.desc" ]; 
 fi
 REPO_DIR="$TOPDIR"
 
-# Version: annotated tag if reachable, else short hash, else a hard error.
-# A silent "[unknown]" hides build provenance; fail the build instead so the
-# problem is caught when the image is produced, not when it is booted.
-VERSION="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null)" \
-    || { echo "ERROR: could not run git describe in $REPO_DIR" >&2; exit 1; }
+# Version: annotated tag if reachable, else short hash. MU_NEURON_VERSION in
+# the environment overrides detection (for tarball/CI builds without git
+# metadata). safe.directory is required for the Docker flow, where the repo
+# is bind-mounted and git refuses it with "detected dubious ownership".
+VERSION="${MU_NEURON_VERSION:-}"
 if [ -z "$VERSION" ]; then
-    echo "ERROR: git describe returned an empty version in $REPO_DIR" >&2
-    exit 1
+    VERSION="$(git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null)" \
+        || { echo "ERROR: could not run git describe in $REPO_DIR" >&2; exit 1; }
+    if [ -z "$VERSION" ]; then
+        echo "ERROR: git describe returned an empty version in $REPO_DIR" >&2
+        exit 1
+    fi
 fi
 
 cat > "${TARGET_DIR}/etc/os-release" <<EOF
