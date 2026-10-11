@@ -1,7 +1,9 @@
 config BR2_PACKAGE_TETRA_BLUESTATION
 	bool "tetra-bluestation"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_SOAPY_SDR
 	help
-	  Prebuilt bluestation-bs binary from the tetra-bluestation
-	  releases (TETRA base station software for the µCell BB).
-
+	  TETRA base station stack (bluestation-bs) for the µCell BB,
+	  built from source against the image's own SoapySDR.
 	  https://github.com/MidnightBlueLabs/tetra-bluestation
