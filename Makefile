@@ -273,8 +273,8 @@ build-%:
 	if $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    BR2_DL_DIR=$(DL_DIR) \
 	    MU_NEURON_VERSION="$$v" \
-	    all >"$$log" 2>&1; then \
-	    tail -5 "$$log"; \
+	    all 2>&1 | tee "$$log"; then \
+	    echo ">>> Build completed. Full log: $$log"; \
 	else \
 	    status=$$?; tail -30 "$$log"; \
 	    if grep -q "No hash found\|sha256 mismatch\|hash mismatch" "$$log"; then \
@@ -283,7 +283,7 @@ build-%:
 	        $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	            BR2_DL_DIR=$(DL_DIR) \
 	            MU_NEURON_VERSION="$$v" \
-	            all || exit 1; \
+	            all 2>&1 | tee "$$log" || exit 1; \
 	    else \
 	        exit $$status; \
 	    fi; \
