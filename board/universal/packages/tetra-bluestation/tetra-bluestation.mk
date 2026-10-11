@@ -27,6 +27,7 @@ TETRA_BLUESTATION_SUBDIR = bins/bluestation-bs
 # The muneuron status tool and device_table expect /usr/local/bin, so
 # relocate it after the default target install step.
 define TETRA_BLUESTATION_MOVE_TO_LOCAL_BIN
+	$(INSTALL) -d $(TARGET_DIR)/usr/local/bin
 	mv $(TARGET_DIR)/usr/bin/bluestation-bs \
 		$(TARGET_DIR)/usr/local/bin/bluestation-bs
 endef
