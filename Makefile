@@ -204,6 +204,13 @@ build-%:
 	@mkdir -p $(OUTPUT_DIR)/$*
 	@cp $(BOARD_DIR)/post-build.sh $(OUTPUT_DIR)/$*/post-build.sh
 	@chmod +x $(OUTPUT_DIR)/$*/post-build.sh
+	# Capture the version on the HOST, where git works even for submodules
+	# whose .git dir lives outside a bind mount (Docker flow). Resolved into a
+	# make variable so the Buildroot sub-make exports it to the post-build hook.
+	@if [ -z "$$MU_NEURON_VERSION" ]; then \
+	    v=$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null) && \
+	    echo ">>> Building $* as muNeuron $$v"; \
+	fi
 	@if [ ! -f $(CURDIR)/configs/$(DEFCONFIG_$*) ]; then \
 	    echo "ERROR: configs/$(DEFCONFIG_$*) not found."; \
 	    echo "       Run 'make bootstrap-$*' first."; \
@@ -221,8 +228,12 @@ build-%:
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    olddefconfig
 	@echo ">>> Building $*"
+	v=$$(if $$(MU_NEURON_VERSION),$$(MU_NEURON_VERSION),$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null)); \
+	test -n "$$v" || { echo "ERROR: could not determine muNeuron version with git (submodule without .git in the mount?)"; \
+	                  echo "       Pass MU_NEURON_VERSION=<tag> (e.g. -e MU_NEURON_VERSION=v1.0 to docker run)."; exit 1; }; \
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    BR2_DL_DIR=$(DL_DIR) \
+	    MU_NEURON_VERSION="$$v" \
 	    all
 	@touch $(OUTPUT_DIR)/$*/build.done
 

@@ -41,8 +41,11 @@ if [ -z "$VERSION" ]; then
             echo "       git said: $GIT_ERR" >&2
         else
             echo "       git describe produced no output (no commits, no tags?)" >&2
-            echo "       Set MU_NEURON_VERSION in the environment to override." >&2
         fi
+        echo "       If this is a submodule inside a bind-mounted container and its" >&2
+        echo "       .git dir lives outside the mount, git cannot see it. Copy the" >&2
+        echo "       gitdir into the mount, or pass -e MU_NEURON_VERSION=<tag> to" >&2
+        echo "       docker run to set the version explicitly." >&2
         exit 1
     fi
 fi
