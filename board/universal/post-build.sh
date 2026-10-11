@@ -25,10 +25,24 @@ REPO_DIR="$TOPDIR"
 # is bind-mounted and git refuses it with "detected dubious ownership".
 VERSION="${MU_NEURON_VERSION:-}"
 if [ -z "$VERSION" ]; then
-    VERSION="$(git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null)" \
-        || { echo "ERROR: could not run git describe in $REPO_DIR" >&2; exit 1; }
+    # GIT_CONFIG_* forces the process-wide safe.directory (the -c option
+    # only covers the top-level call, not whatever git discovers on its own).
+    GIT_ERR="$(cd "$REPO_DIR" && GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0=safe.directory \
+        GIT_CONFIG_VALUE_0="$REPO_DIR" \
+        git describe --tags --always --dirty 2>&1 >/dev/null)" || true
+    VERSION="$(cd "$REPO_DIR" && GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0=safe.directory \
+        GIT_CONFIG_VALUE_0="$REPO_DIR" \
+        git describe --tags --always --dirty 2>/dev/null)" || true
     if [ -z "$VERSION" ]; then
-        echo "ERROR: git describe returned an empty version in $REPO_DIR" >&2
+        echo "ERROR: could not determine the version in $REPO_DIR" >&2
+        if [ -n "$GIT_ERR" ]; then
+            echo "       git said: $GIT_ERR" >&2
+        else
+            echo "       git describe produced no output (no commits, no tags?)" >&2
+            echo "       Set MU_NEURON_VERSION in the environment to override." >&2
+        fi
         exit 1
     fi
 fi
