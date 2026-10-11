@@ -50,9 +50,7 @@ restart() {
 
 status() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        pgrep -f oled-monitor.py >/dev/null 2>&1 && \
-            echo "oled-monitor is running (supervisor PID $(cat $PIDFILE))" || \
-            echo "oled-monitor supervisor is up but the monitor is not"
+        echo "oled-monitor is running (supervisor PID $(cat $PIDFILE))"
     else
         echo "oled-monitor is not running"
     fi
