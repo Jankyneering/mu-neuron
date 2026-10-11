@@ -17,3 +17,4 @@ buildroot/dl/
 sdcard.img
 __pycache__/
 *.pyc
+.version

@@ -15,6 +15,8 @@
 #   timezone     Set the system timezone (interactive or TZ name argument)
 #   probe        Probe the µCell driver via SoapySDRUtil
 #   status       Show board/driver detection state
+#   start        Start bluestation-bs in the background (/boot/config.toml)
+#   stop         Stop bluestation-bs (SIGTERM; SIGINT is ignored upstream)
 #   version      Show µNeuron version
 #   help         Show this message
 
@@ -62,6 +64,9 @@ Commands:
   timezone      Set the system timezone (interactive or TZ name argument)
   probe         Probe the µCell driver via SoapySDRUtil
   status        Show board/driver detection state
+  start         Start bluestation-bs in the background with /boot/config.toml
+  stop          Stop bluestation-bs (SIGTERM; SIGINT is ignored by the
+                current upstream release)
   version       Show µNeuron version
   help          Show this message
 
@@ -301,6 +306,68 @@ cmd_version() {
     fi
 }
 
+BLUESTATION_BIN="/usr/local/bin/bluestation-bs"
+BLUESTATION_CFG="/boot/config.toml"
+BLUESTATION_LOG="/var/log/bluestation-bs.log"
+BLUESTATION_PIDFILE="/var/run/bluestation-bs.pid"
+
+cmd_start() {
+    if pid=$(pidof bluestation-bs 2>/dev/null); then
+        echo "bluestation-bs is already running (pid $pid)"
+        exit 0
+    fi
+    if [ ! -x "$BLUESTATION_BIN" ]; then
+        error "bluestation-bs not found at $BLUESTATION_BIN"
+        exit 1
+    fi
+    if [ ! -r "$BLUESTATION_CFG" ]; then
+        error "config not found at $BLUESTATION_CFG (is /boot mounted?)"
+        exit 1
+    fi
+    echo "Starting bluestation-bs with $BLUESTATION_CFG..."
+    "$BLUESTATION_BIN" "$BLUESTATION_CFG" >>"$BLUESTATION_LOG" 2>&1 &
+    echo $! > "$BLUESTATION_PIDFILE"
+    sleep 2
+    if pidof bluestation-bs >/dev/null 2>&1; then
+        info "bluestation-bs running (pid $(cat "$BLUESTATION_PIDFILE"))"
+        echo "Log: $BLUESTATION_LOG (follow with: tail -f $BLUESTATION_LOG)"
+    else
+        warn "bluestation-bs exited within 2s; last log lines:"
+        tail -10 "$BLUESTATION_LOG" 2>/dev/null
+        rm -f "$BLUESTATION_PIDFILE"
+        exit 1
+    fi
+}
+
+cmd_stop() {
+    # bluestation-bs currently ignores SIGINT (upstream issue: run_stack
+    # never re-checks the stop flag mid-tick), so stop it with SIGTERM.
+    pid=$(pidof bluestation-bs 2>/dev/null)
+    if [ -z "$pid" ]; then
+        echo "bluestation-bs is not running"
+        exit 0
+    fi
+    echo "Stopping bluestation-bs (pid $pid)..."
+    kill -TERM "$pid"
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
+        i=$((i + 1))
+        sleep 1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        warn "bluestation-bs did not exit after SIGTERM + 10s"
+        exit 1
+    fi
+    echo "Stopped."
+    # SIGTERM is a hard kill: the SoapyMuCell destructor never runs, so
+    # the SX1255 keeps its last state (TX latched on, carrier, LEDs).
+    # A probe constructs a driver instance, whose reset_chip() clears it.
+    if command -v SoapySDRUtil >/dev/null 2>&1; then
+        echo "Resetting the µCell (clears latched TX/carrier/LEDs)..."
+        SoapySDRUtil --probe=driver=mucell >/dev/null 2>&1 || true
+    fi
+}
+
 main() {
     if [ $# -eq 0 ]; then
         usage >&2
@@ -314,6 +381,8 @@ main() {
         timezone)    cmd_timezone "$@" ;;
         probe)       cmd_probe "$@" ;;
         status)      cmd_status "$@" ;;
+        start)       cmd_start "$@" ;;
+        stop)        cmd_stop "$@" ;;
         version|-v)  cmd_version "$@" ;;
         help|-h)     usage ;;
         *)

@@ -74,6 +74,11 @@ PARALLEL_TARGETS := 3
 # Kernel image name (64-bit unified)
 KERNEL_IMAGE := Image
 
+# Version stamp written by 'make version' on the host (where git can see the
+# submodule gitdir). The Docker flow reads this file inside the container,
+# where the bind-mounted submodule's .git target is unreachable.
+VERSION_FILE := $(CURDIR)/.version
+
 # DTC from the priority target's host tools (built by Buildroot)
 DTC := $(OUTPUT_DIR)/rpi3/host/bin/dtc
 
@@ -94,6 +99,62 @@ build: build-$(TARGET) restage-boot-$(TARGET)
 
 # Full multi-board flow: build every SoC family, merge, assemble universal image.
 universal: final-image
+
+# =============================================================================
+# Driver version bump
+# =============================================================================
+# Update the pinned mu-cell-bb-drivers versions to the latest tag (or a given
+# VERSION), so a new driver release is picked up without manual pin edits.
+# Usage:
+#   make bump-drivers                   # use the latest tag upstream
+#   make bump-drivers VERSION=v1.4.0   # use a specific tag
+.PHONY: bump-drivers
+
+bump-drivers:
+	@v="$${VERSION:-$$(git ls-remote --tags --sort=-v:refname \
+	    https://github.com/Jankyneering/mu-cell-bb-drivers 'refs/tags/v*' \
+	    | head -1 | cut -d'/' -f3)}"; \
+	test -n "$$v" || { echo "ERROR: could not determine the latest driver tag"; exit 1; }; \
+	cur=$$(grep -m1 '^SOAPY_MU_CELL_VERSION' $(SOAPY_MU_CELL_MK) | cut -d'=' -f2 | tr -d ' '); \
+	if [ "$$cur" = "$$v" ]; then \
+	    echo ">>> mu-cell-bb-drivers already at $$v"; \
+	    exit 0; \
+	fi; \
+	sed -i "s|^SOAPY_MU_CELL_VERSION .*|SOAPY_MU_CELL_VERSION     = $$v|" $(SOAPY_MU_CELL_MK); \
+	sed -i "s|^MU_CELL_BB_DTS_VERSION .*|MU_CELL_BB_DTS_VERSION     = $$v|" $(MU_CELL_BB_DTS_MK); \
+	echo ">>> Bumped mu-cell-bb-drivers: $$cur -> $$v"; \
+	echo ">>> Remember to purge the package before rebuilding:"; \
+	echo "    rm -rf dl/soapy-mu-cell/* output/<target>/build/soapy-mu-cell-*"
+
+# =============================================================================
+# Cargo package hash refresh
+# =============================================================================
+# Buildroot's cargo infra vendors dependencies into a tarball at download
+# time, so the sha256 in the .hash file can only be computed after the first
+# download of a new version has run. This wraps the helper script for the
+# cargo packages we ship.
+CARGO_PACKAGES := tetra-bluestation
+
+refresh-cargo-hash:
+	@for pkg in $(CARGO_PACKAGES); do \
+	    scripts/refresh-cargo-hash.sh $$pkg $(DL_DIR); \
+	done
+
+.PHONY: refresh-cargo-hash
+
+# =============================================================================
+# Version stamp
+# =============================================================================
+# Write .version from git on the HOST. In the Docker flow the bind-mounted
+# submodule's .git points outside the mount, so git inside the container
+# cannot resolve it; the build reads this stamp instead.
+version:
+	@v="$${MU_NEURON_VERSION:-$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null)}"; \
+	test -n "$$v" || { echo "ERROR: could not run git describe in $(CURDIR)"; exit 1; }; \
+	echo "$$v" > $(VERSION_FILE); \
+	echo ">>> $(VERSION_FILE): $$v"
+
+.PHONY: version
 
 # =============================================================================
 # Update check
@@ -221,9 +282,56 @@ build-%:
 	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    olddefconfig
 	@echo ">>> Building $*"
-	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	v="$${MU_NEURON_VERSION:-}"; \
+	if [ -z "$$v" ]; then \
+	    gitv=$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null || true); \
+	    if [ -n "$$gitv" ]; then \
+	        echo "$$gitv" > $(VERSION_FILE); \
+	        v="$$gitv"; \
+	    fi; \
+	fi; \
+	if [ -z "$$v" ] && [ -s $(VERSION_FILE) ]; then v=$$(cat $(VERSION_FILE)); fi; \
+	test -n "$$v" || { echo "ERROR: could not determine the muNeuron version."; \
+	                   echo "       Run 'make version' on the host, or"; \
+	                   echo "       pass -e MU_NEURON_VERSION=<tag> to docker run."; exit 1; }; \
+	echo ">>> Building $* as muNeuron $$v"; \
+	log=$(OUTPUT_DIR)/$*/build-attempt.log; \
+	if $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    BR2_DL_DIR=$(DL_DIR) \
-	    all
+	    MU_NEURON_VERSION="$$v" \
+	    all 2>&1 | tee "$$log"; then \
+	    echo ">>> Build completed. Full log: $$log"; \
+	else \
+	    status=$$?; tail -30 "$$log"; \
+	    if grep -q "No hash found\|sha256 mismatch\|hash mismatch" "$$log"; then \
+	        echo ">>> Cargo package hash missing/stale; refreshing and retrying"; \
+	        $(MAKE) refresh-cargo-hash || exit 1; \
+	        $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	            BR2_DL_DIR=$(DL_DIR) \
+	            MU_NEURON_VERSION="$$v" \
+	            all 2>&1 | tee "$$log" || exit 1; \
+	    else \
+	        exit $$status; \
+	    fi; \
+	fi
+	@# The image must not ship a stale bluestation-bs: if a previous build's
+	@# binary is still in the rootfs (e.g. an earlier package build failed and
+	@# the target kept the old file), force a clean rebuild of the package and
+	@# fail hard if the version still does not match the pin afterwards.
+	@pinned=$$(grep -m1 '^TETRA_BLUESTATION_VERSION' $(BOARD_DIR)/packages/tetra-bluestation/tetra-bluestation.mk \
+	    | cut -d'=' -f2 | tr -d ' "' | sed 's/^v//; s/-.*//'); \
+	bin=$(OUTPUT_DIR)/$*/target/usr/local/bin/bluestation-bs; \
+	if [ -f "$$bin" ] && ! grep -aq "$$pinned" "$$bin"; then \
+	    echo ">>> bluestation-bs does not match the pinned version $$pinned; forcing a clean package rebuild"; \
+	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
+	        tetra-bluestation-dirclean || exit 1; \
+	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	        BR2_DL_DIR=$(DL_DIR) MU_NEURON_VERSION="$$v" all || exit 1; \
+	    if ! grep -aq "$$pinned" "$$bin"; then \
+	        echo "ERROR: bluestation-bs is still not version $$pinned after a clean rebuild"; \
+	        exit 1; \
+	    fi; \
+	fi
 	@touch $(OUTPUT_DIR)/$*/build.done
 
 # Restage boot-partition inputs that Buildroot does not track: the
@@ -237,12 +345,15 @@ restage-boot-%:
 	fi
 	@if [ -d $(OUTPUT_DIR)/$*/images/rpi-firmware ]; then \
 	    cp $(BOARD_DIR)/config.txt $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt; \
-	    echo ">>> Restaged config.txt for $*"; \
+	    cp $(BOARD_DIR)/bluestation-bs/config.toml $(OUTPUT_DIR)/$*/images/config.toml; \
+	    echo ">>> Restaged config.txt and config.toml for $*"; \
 	    echo ">>> Regenerating $* disk image (target-post-image)"; \
 	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
 	        BR2_DL_DIR=$(DL_DIR) target-post-image || exit 1; \
 	    grep -q "i2c-gpio" $(OUTPUT_DIR)/$*/images/rpi-firmware/config.txt \
 	        || { echo "ERROR: restaged config.txt missing i2c-gpio"; exit 1; }; \
+	    grep -q "config_version" $(OUTPUT_DIR)/$*/images/config.toml \
+	        || { echo "ERROR: restaged config.toml missing config_version"; exit 1; }; \
 	else \
 	    echo "WARNING: no images/rpi-firmware for $*, skipping restage"; \
 	fi
@@ -441,6 +552,7 @@ merge-boot: build-all check-builds dtbs
 	fi
 	cp $(BOARD_DIR)/config.txt  $(UNIVERSAL_BOOT)/
 	cp $(BOARD_DIR)/cmdline.txt $(UNIVERSAL_BOOT)/
+	cp $(BOARD_DIR)/bluestation-bs/config.toml $(UNIVERSAL_BOOT)/
 
 	@echo ""
 	@echo ">>> Boot partition contents:"

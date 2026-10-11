@@ -15,7 +15,15 @@ start() {
     fi
     # Ensure i2c-dev is loaded so /dev/i2c-1 exists
     modprobe i2c-dev 2>/dev/null || true
-    python3 "$SCRIPT" >> "$LOGFILE" 2>&1 &
+    # Loop-restart: a crashed monitor leaves the panel unpolled (encoder
+    # dead, animations frozen), so respawn it with a short backoff.
+    (
+        while true; do
+            python3 "$SCRIPT" >> "$LOGFILE" 2>&1
+            echo "$(date) oled-monitor exited ($?), restarting in 5s" >> "$LOGFILE"
+            sleep 5
+        done
+    ) &
     echo $! > "$PIDFILE"
     echo "OK"
 }
@@ -23,7 +31,10 @@ start() {
 stop() {
     echo -n "Stopping oled-monitor: "
     if [ -f "$PIDFILE" ]; then
-        kill "$(cat $PIDFILE)" 2>/dev/null
+        # Kill the supervisor shell and any python it spawned.
+        pid=$(cat "$PIDFILE")
+        pkill -P "$pid" 2>/dev/null
+        kill "$pid" 2>/dev/null
         rm -f "$PIDFILE"
         echo "OK"
     else
@@ -39,7 +50,7 @@ restart() {
 
 status() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "oled-monitor is running (PID $(cat $PIDFILE))"
+        echo "oled-monitor is running (supervisor PID $(cat $PIDFILE))"
     else
         echo "oled-monitor is not running"
     fi

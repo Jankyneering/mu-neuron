@@ -13,6 +13,22 @@ case "$1" in
             echo "ntpd not found, skipping NTP sync"
             exit 0
         fi
+        # busybox ntpd resolves its peers once at startup and exits with
+        # "bad address" when DNS is not usable yet (DHCP lease / resolver
+        # not in place). Wait for name resolution before starting it.
+        echo -n "Waiting for DNS: "
+        i=0
+        while [ $i -lt 60 ]; do
+            if nslookup "$(echo $SERVERS | cut -d' ' -f1)" >/dev/null 2>&1; then
+                echo "OK"
+                break
+            fi
+            i=$((i + 1))
+            sleep 1
+        done
+        if [ $i -ge 60 ]; then
+            echo "timeout (starting ntpd anyway; it will retry)"
+        fi
         echo "Starting ntpd (NTP time sync)..."
         args=""
         for s in $SERVERS; do

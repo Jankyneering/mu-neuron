@@ -2,24 +2,35 @@
 #
 # tetra-bluestation
 #
-# The upstream project publishes prebuilt bluestation-bs binaries per release.
-# We install the aarch64 build (identical assets are published for rpi4/rpi5
-# and generic aarch64; all targets in µNeuron are aarch64).
+# Built from source with Buildroot's cargo infrastructure so the binary is
+# linked against the image's own SoapySDR and glibc (the prebuilt upstream
+# asset was built against unknown libraries). Dependencies are vendored into
+# the download tarball by the cargo download post-process, so the build does
+# not need network access after download.
 #
 ################################################################################
 
 TETRA_BLUESTATION_VERSION = v0.5.10-09d4e0d
-TETRA_BLUESTATION_SITE = https://github.com/MidnightBlueLabs/tetra-bluestation/releases/download/$(TETRA_BLUESTATION_VERSION)
-TETRA_BLUESTATION_SOURCE = bluestation-bs-aarch64-generic
-TETRA_BLUESTATION_LICENSE = PROPRIETARY (upstream prebuilt binary)
+TETRA_BLUESTATION_SITE = https://github.com/MidnightBlueLabs/tetra-bluestation
+TETRA_BLUESTATION_SITE_METHOD = git
+TETRA_BLUESTATION_LICENSE = MIT
+TETRA_BLUESTATION_LICENSE_FILES = LICENSE
 
-define TETRA_BLUESTATION_EXTRACT_CMDS
-	cp $(TETRA_BLUESTATION_DL_DIR)/$(TETRA_BLUESTATION_SOURCE) $(@D)/bluestation-bs
-endef
+# rust-soapysdr locates libSoapySDR via pkg-config at build time.
+TETRA_BLUESTATION_DEPENDENCIES = soapy-sdr host-pkgconf
 
-define TETRA_BLUESTATION_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0755 $(@D)/bluestation-bs \
+# Upstream is a Cargo workspace; the root manifest is virtual (no [[bin]]).
+# Build and install the bluestation-bs member crate, not the workspace root.
+TETRA_BLUESTATION_SUBDIR = bins/bluestation-bs
+
+# The cargo infra installs the binary to /usr/bin via `cargo install`.
+# The muneuron status tool and device_table expect /usr/local/bin, so
+# relocate it after the default target install step.
+define TETRA_BLUESTATION_MOVE_TO_LOCAL_BIN
+	$(INSTALL) -d $(TARGET_DIR)/usr/local/bin
+	mv $(TARGET_DIR)/usr/bin/bluestation-bs \
 		$(TARGET_DIR)/usr/local/bin/bluestation-bs
 endef
+TETRA_BLUESTATION_POST_INSTALL_TARGET_HOOKS += TETRA_BLUESTATION_MOVE_TO_LOCAL_BIN
 
-$(eval $(generic-package))
+$(eval $(cargo-package))

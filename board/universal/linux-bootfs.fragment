@@ -1,0 +1,16 @@
+# Kernel config fragment for accessing the FAT boot partition after boot.
+# The SD card files (config.txt, cmdline.txt, config.toml, ...) are on a
+# FAT16/32 partition that must stay mountable from Linux so they can be
+# inspected and edited on the running board (mounted at /boot, see
+# rootfs-overlay/etc/fstab and the S02fstab init script).
+CONFIG_FAT_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_NLS_CODEPAGE_437=y
+CONFIG_NLS_ISO8859_1=y
+# Thermal sensor (cpu_thermal hwmon, read by the OLED monitor via psutil).
+# bcm2711_defconfig already enables these; spelled out here so a future
+# defconfig switch cannot silently drop them.
+CONFIG_THERMAL=y
+CONFIG_THERMAL_OF=y
+CONFIG_BCM2835_THERMAL=y
+CONFIG_BCM2711_THERMAL=y
