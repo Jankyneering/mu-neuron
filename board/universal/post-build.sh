@@ -19,11 +19,14 @@ if [ -z "$TOPDIR" ] || [ "$TOPDIR" = "/" ] || [ ! -f "$TOPDIR/external.desc" ]; 
 fi
 REPO_DIR="$TOPDIR"
 
-# Version: annotated tag if reachable, else short hash. MU_NEURON_VERSION in
-# the environment overrides detection (for tarball/CI builds without git
-# metadata). safe.directory is required for the Docker flow, where the repo
-# is bind-mounted and git refuses it with "detected dubious ownership".
+# Version: MU_NEURON_VERSION from the environment (set by the top-level
+# Makefile, which resolves it on the host where git can see the submodule
+# gitdir) or the .version stamp next to external.desc. Fall back to git
+# in the tree for native builds.
 VERSION="${MU_NEURON_VERSION:-}"
+if [ -z "$VERSION" ] && [ -s "$REPO_DIR/.version" ]; then
+    VERSION="$(cat "$REPO_DIR/.version")"
+fi
 if [ -z "$VERSION" ]; then
     # GIT_CONFIG_* forces the process-wide safe.directory (the -c option
     # only covers the top-level call, not whatever git discovers on its own).
