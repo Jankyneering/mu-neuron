@@ -291,7 +291,18 @@ def get_CPU():
     return min(psutil.cpu_percent(), 100)
 
 def get_Temp():
-    return round(psutil.sensors_temperatures()['cpu_thermal'][0].current, 1)
+    # The thermal zone name differs per SoC family (cpu_thermal on BCM2710,
+    # soc_thermal on BCM2711/2712) and can be absent entirely (older kernel
+    # or missing driver). Fall back to the first available sensor instead of
+    # crashing the whole monitor, and to 0.0 when nothing is exposed.
+    temps = psutil.sensors_temperatures()
+    for name in ("cpu_thermal", "soc_thermal"):
+        if name in temps:
+            return round(temps[name][0].current, 1)
+    for entries in temps.values():
+        if entries:
+            return round(entries[0].current, 1)
+    return 0.0
 
 def get_RAM():
     return psutil.virtual_memory().percent
