@@ -359,6 +359,13 @@ cmd_stop() {
         exit 1
     fi
     echo "Stopped."
+    # SIGTERM is a hard kill: the SoapyMuCell destructor never runs, so
+    # the SX1255 keeps its last state (TX latched on, carrier, LEDs).
+    # A probe constructs a driver instance, whose reset_chip() clears it.
+    if command -v SoapySDRUtil >/dev/null 2>&1; then
+        echo "Resetting the µCell (clears latched TX/carrier/LEDs)..."
+        SoapySDRUtil --probe=driver=mucell >/dev/null 2>&1 || true
+    fi
 }
 
 main() {
