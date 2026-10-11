@@ -20,10 +20,16 @@ define MU_CELL_BB_DTS_BUILD_CMDS
 		-o $(@D)/mu-cell-bb_raspberrypi.dtbo -
 endef
 
+# The overlay must reach the FAT boot partition, which is what the
+# bootloader reads. /boot in the rootfs is a mount point for that FAT
+# partition at runtime, so installing into TARGET_DIR/boot would be
+# shadowed and never seen. Stage it where the per-board post-image
+# script picks up boot files (BINARIES_DIR/rpi-firmware), like the
+# upstream overlays shipped by the rpi-firmware package.
 define MU_CELL_BB_DTS_INSTALL_TARGET_CMDS
-	$(INSTALL) -d $(TARGET_DIR)/boot/overlays
+	$(INSTALL) -d $(BINARIES_DIR)/rpi-firmware/overlays
 	$(INSTALL) -m 0644 $(@D)/mu-cell-bb_raspberrypi.dtbo \
-		$(TARGET_DIR)/boot/overlays/mu-cell-bb_raspberrypi.dtbo
+		$(BINARIES_DIR)/rpi-firmware/overlays/mu-cell-bb_raspberrypi.dtbo
 endef
 
 $(eval $(generic-package))
