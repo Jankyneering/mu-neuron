@@ -288,6 +288,24 @@ build-%:
 	        exit $$status; \
 	    fi; \
 	fi
+	@# The image must not ship a stale bluestation-bs: if a previous build's
+	@# binary is still in the rootfs (e.g. an earlier package build failed and
+	@# the target kept the old file), force a clean rebuild of the package and
+	@# fail hard if the version still does not match the pin afterwards.
+	@pinned=$$(grep -m1 '^TETRA_BLUESTATION_VERSION' $(BOARD_DIR)/packages/tetra-bluestation/tetra-bluestation.mk \
+	    | cut -d'=' -f2 | tr -d ' "' | sed 's/^v//; s/-.*//'); \
+	bin=$(OUTPUT_DIR)/$*/target/usr/local/bin/bluestation-bs; \
+	if [ -f "$$bin" ] && ! grep -aq "$$pinned" "$$bin"; then \
+	    echo ">>> bluestation-bs does not match the pinned version $$pinned; forcing a clean package rebuild"; \
+	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* BR2_EXTERNAL=$(CURDIR) \
+	        tetra-bluestation-dirclean || exit 1; \
+	    $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	        BR2_DL_DIR=$(DL_DIR) MU_NEURON_VERSION="$$v" all || exit 1; \
+	    if ! grep -aq "$$pinned" "$$bin"; then \
+	        echo "ERROR: bluestation-bs is still not version $$pinned after a clean rebuild"; \
+	        exit 1; \
+	    fi; \
+	fi
 	@touch $(OUTPUT_DIR)/$*/build.done
 
 # Restage boot-partition inputs that Buildroot does not track: the

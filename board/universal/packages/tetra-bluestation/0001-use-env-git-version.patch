@@ -1,0 +1,15 @@
+--- a/crates/tetra-core/src/lib.rs
++++ b/crates/tetra-core/src/lib.rs
+@@ -3,8 +3,10 @@
++/// Build-system-provided version string (e.g. the packaged release tag);
++/// falls back to the git_version crate when the build system does not
++/// provide one (e.g. building from a git checkout).
++pub const GIT_VERSION: &str =
++    match option_env!("BLUESTATION_GIT_VERSION") {
++        Some(v) => v,
++        None => git_version::git_version!(fallback = "unknown"),
++    };
+-/// Git version string, set at compile time
+-pub const GIT_VERSION: &str = git_version::git_version!(fallback = "unknown");
+ /// Stack version followed by git version string, e.g., "0.1.0-aabbccdd"
+ pub const STACK_VERSION: &str = const_format::formatcp!("{}-{}", env!("CARGO_PKG_VERSION"), GIT_VERSION);

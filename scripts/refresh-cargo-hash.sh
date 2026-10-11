@@ -23,9 +23,12 @@ if [ ! -f "$MK_FILE" ]; then
     exit 1
 fi
 
-TARBALL="$(ls -t "$DL_DIR/$PKG/$PKG-"*-cargo*.tar.gz 2>/dev/null | head -1)"
+# Match the tarball against the PINNED version, not just the newest file:
+# dl/ may hold tarballs from several previously-built versions.
+PINNED="$(grep -m1 "^${UPPER}_VERSION" "$MK_FILE" | cut -d'=' -f2 | tr -d ' "')"
+TARBALL="$(ls "$DL_DIR/$PKG/$PKG-${PINNED}"*-cargo*.tar.gz 2>/dev/null | head -1)"
 if [ -z "$TARBALL" ]; then
-    echo "ERROR: no generated cargo tarball in $DL_DIR/$PKG/" >&2
+    echo "ERROR: no cargo tarball for the pinned version $PINNED in $DL_DIR/$PKG/" >&2
     echo "       Run the build once first (the download must run to generate it)." >&2
     exit 1
 fi
