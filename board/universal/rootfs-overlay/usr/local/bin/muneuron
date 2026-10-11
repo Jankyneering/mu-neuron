@@ -62,6 +62,8 @@ Commands:
   timezone      Set the system timezone (interactive or TZ name argument)
   probe         Probe the µCell driver via SoapySDRUtil
   status        Show board/driver detection state
+  stop          Stop bluestation-bs (SIGTERM; SIGINT is ignored by the
+                current upstream release)
   version       Show µNeuron version
   help          Show this message
 
@@ -301,6 +303,28 @@ cmd_version() {
     fi
 }
 
+cmd_stop() {
+    # bluestation-bs currently ignores SIGINT (upstream issue: run_stack
+    # never re-checks the stop flag mid-tick), so stop it with SIGTERM.
+    pid=$(pidof bluestation-bs 2>/dev/null)
+    if [ -z "$pid" ]; then
+        echo "bluestation-bs is not running"
+        exit 0
+    fi
+    echo "Stopping bluestation-bs (pid $pid)..."
+    kill -TERM "$pid"
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
+        i=$((i + 1))
+        sleep 1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        warn "bluestation-bs did not exit after SIGTERM + 10s"
+        exit 1
+    fi
+    echo "Stopped."
+}
+
 main() {
     if [ $# -eq 0 ]; then
         usage >&2
@@ -314,6 +338,7 @@ main() {
         timezone)    cmd_timezone "$@" ;;
         probe)       cmd_probe "$@" ;;
         status)      cmd_status "$@" ;;
+        stop)        cmd_stop "$@" ;;
         version|-v)  cmd_version "$@" ;;
         help|-h)     usage ;;
         *)
