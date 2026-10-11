@@ -19,11 +19,13 @@ TETRA_BLUESTATION_LICENSE_FILES = LICENSE
 # rust-soapysdr locates libSoapySDR via pkg-config at build time.
 TETRA_BLUESTATION_DEPENDENCIES = soapy-sdr host-pkgconf
 
-# The cargo infra installs built binaries to /usr/bin; the muneuron status
-# tool and device_table expect /usr/local/bin, so relocate after install.
-define TETRA_BLUESTATION_INSTALL_TARGET_CMDS
+# The cargo infra installs the binary to /usr/bin via `cargo install`.
+# The muneuron status tool and device_table expect /usr/local/bin, so
+# relocate it after the default target install step.
+define TETRA_BLUESTATION_MOVE_TO_LOCAL_BIN
 	mv $(TARGET_DIR)/usr/bin/bluestation-bs \
 		$(TARGET_DIR)/usr/local/bin/bluestation-bs
 endef
+TETRA_BLUESTATION_POST_INSTALL_TARGET_HOOKS += TETRA_BLUESTATION_MOVE_TO_LOCAL_BIN
 
 $(eval $(cargo-package))
