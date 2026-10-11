@@ -257,10 +257,16 @@ build-%:
 	    olddefconfig
 	@echo ">>> Building $*"
 	v="$${MU_NEURON_VERSION:-}"; \
+	if [ -z "$$v" ]; then \
+	    gitv=$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null || true); \
+	    if [ -n "$$gitv" ]; then \
+	        echo "$$gitv" > $(VERSION_FILE); \
+	        v="$$gitv"; \
+	    fi; \
+	fi; \
 	if [ -z "$$v" ] && [ -s $(VERSION_FILE) ]; then v=$$(cat $(VERSION_FILE)); fi; \
-	if [ -z "$$v" ]; then v=$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null || true); fi; \
 	test -n "$$v" || { echo "ERROR: could not determine the muNeuron version."; \
-	                   echo "       Run 'make version' on the host (outside Docker), or"; \
+	                   echo "       Run 'make version' on the host, or"; \
 	                   echo "       pass -e MU_NEURON_VERSION=<tag> to docker run."; exit 1; }; \
 	echo ">>> Building $* as muNeuron $$v"; \
 	log=$(OUTPUT_DIR)/$*/build-attempt.log; \
