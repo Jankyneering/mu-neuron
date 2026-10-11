@@ -263,10 +263,25 @@ build-%:
 	                   echo "       Run 'make version' on the host (outside Docker), or"; \
 	                   echo "       pass -e MU_NEURON_VERSION=<tag> to docker run."; exit 1; }; \
 	echo ">>> Building $* as muNeuron $$v"; \
-	$(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	log=$(OUTPUT_DIR)/$*/build-attempt.log; \
+	if $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
 	    BR2_DL_DIR=$(DL_DIR) \
 	    MU_NEURON_VERSION="$$v" \
-	    all
+	    all >"$$log" 2>&1; then \
+	    tail -5 "$$log"; \
+	else \
+	    status=$$?; tail -30 "$$log"; \
+	    if grep -q "No hash found\|sha256 mismatch\|hash mismatch" "$$log"; then \
+	        echo ">>> Cargo package hash missing/stale; refreshing and retrying"; \
+	        $(MAKE) refresh-cargo-hash || exit 1; \
+	        $(MAKE) -C $(BUILDROOT_DIR) O=$(OUTPUT_DIR)/$* \
+	            BR2_DL_DIR=$(DL_DIR) \
+	            MU_NEURON_VERSION="$$v" \
+	            all || exit 1; \
+	    else \
+	        exit $$status; \
+	    fi; \
+	fi
 	@touch $(OUTPUT_DIR)/$*/build.done
 
 # Restage boot-partition inputs that Buildroot does not track: the

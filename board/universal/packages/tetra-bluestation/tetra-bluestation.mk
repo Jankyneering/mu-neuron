@@ -10,7 +10,7 @@
 #
 ################################################################################
 
-TETRA_BLUESTATION_VERSION = 02286ef
+TETRA_BLUESTATION_VERSION = v0.5.10-09d4e0d
 TETRA_BLUESTATION_SITE = https://github.com/MidnightBlueLabs/tetra-bluestation
 TETRA_BLUESTATION_SITE_METHOD = git
 TETRA_BLUESTATION_LICENSE = MIT
