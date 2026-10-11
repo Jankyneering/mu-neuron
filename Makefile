@@ -101,6 +101,22 @@ build: build-$(TARGET) restage-boot-$(TARGET)
 universal: final-image
 
 # =============================================================================
+# Cargo package hash refresh
+# =============================================================================
+# Buildroot's cargo infra vendors dependencies into a tarball at download
+# time, so the sha256 in the .hash file can only be computed after the first
+# download of a new version has run. This wraps the helper script for the
+# cargo packages we ship.
+CARGO_PACKAGES := tetra-bluestation
+
+refresh-cargo-hash:
+	@for pkg in $(CARGO_PACKAGES); do \
+	    scripts/refresh-cargo-hash.sh $$pkg $(DL_DIR); \
+	done
+
+.PHONY: refresh-cargo-hash
+
+# =============================================================================
 # Version stamp
 # =============================================================================
 # Write .version from git on the HOST. In the Docker flow the bind-mounted

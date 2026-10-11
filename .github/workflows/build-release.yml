@@ -102,8 +102,25 @@ jobs:
             buildroot-dl-${{ env.BUILDROOT_VERSION }}-
 
       - name: Build ${{ matrix.target }}
+        id: build
         run: |
-          make build-${{ matrix.target }}
+          set -o pipefail
+          if make build-${{ matrix.target }} 2>&1 | tee build.log; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+          elif grep -q "No hash found\|sha256 mismatch\|hash mismatch" build.log; then
+            # Cargo package hash missing/stale: the download ran and left
+            # the vendored tarball in dl/. Refresh, commit to the tag is
+            # impossible — so refresh and rebuild in place.
+            make refresh-cargo-hash
+            echo "status=rebuilt" >> "$GITHUB_OUTPUT"
+          else
+            cat build.log
+            exit 1
+          fi
+
+      - name: Rebuild after hash refresh
+        if: steps.build.outputs.status == 'rebuilt'
+        run: make build-${{ matrix.target }}
 
       - name: Check disk usage
         if: always()
