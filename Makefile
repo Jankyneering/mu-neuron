@@ -101,6 +101,32 @@ build: build-$(TARGET) restage-boot-$(TARGET)
 universal: final-image
 
 # =============================================================================
+# Driver version bump
+# =============================================================================
+# Update the pinned mu-cell-bb-drivers versions to the latest tag (or a given
+# VERSION), so a new driver release is picked up without manual pin edits.
+# Usage:
+#   make bump-drivers                   # use the latest tag upstream
+#   make bump-drivers VERSION=v1.4.0   # use a specific tag
+.PHONY: bump-drivers
+
+bump-drivers:
+	@v="$${VERSION:-$$(git ls-remote --tags --sort=-v:refname \
+	    https://github.com/Jankyneering/mu-cell-bb-drivers 'refs/tags/v*' \
+	    | head -1 | cut -d'/' -f3)}"; \
+	test -n "$$v" || { echo "ERROR: could not determine the latest driver tag"; exit 1; }; \
+	cur=$$(grep -m1 '^SOAPY_MU_CELL_VERSION' $(SOAPY_MU_CELL_MK) | cut -d'=' -f2 | tr -d ' '); \
+	if [ "$$cur" = "$$v" ]; then \
+	    echo ">>> mu-cell-bb-drivers already at $$v"; \
+	    exit 0; \
+	fi; \
+	sed -i "s|^SOAPY_MU_CELL_VERSION .*|SOAPY_MU_CELL_VERSION     = $$v|" $(SOAPY_MU_CELL_MK); \
+	sed -i "s|^MU_CELL_BB_DTS_VERSION .*|MU_CELL_BB_DTS_VERSION     = $$v|" $(MU_CELL_BB_DTS_MK); \
+	echo ">>> Bumped mu-cell-bb-drivers: $$cur -> $$v"; \
+	echo ">>> Remember to purge the package before rebuilding:"; \
+	echo "    rm -rf dl/soapy-mu-cell/* output/<target>/build/soapy-mu-cell-*"
+
+# =============================================================================
 # Cargo package hash refresh
 # =============================================================================
 # Buildroot's cargo infra vendors dependencies into a tarball at download
