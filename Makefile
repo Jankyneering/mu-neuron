@@ -7,6 +7,7 @@
 #   A multi-board "universal" image is still available: `make universal`.
 
 TARGET ?= rpi3
+SHELL := /bin/bash
 
 BUILDROOT_DIR  ?= $(CURDIR)/buildroot
 BOARD_DIR      := $(CURDIR)/board/universal
@@ -283,6 +284,7 @@ build-%:
 	    olddefconfig
 	@echo ">>> Building $*"
 	v="$${MU_NEURON_VERSION:-}"; \
+	set -o pipefail; \
 	if [ -z "$$v" ]; then \
 	    gitv=$$(git -C $(CURDIR) describe --tags --always --dirty 2>/dev/null || true); \
 	    if [ -n "$$gitv" ]; then \
