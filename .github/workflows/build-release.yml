@@ -131,6 +131,17 @@ jobs:
         # since actions/upload-artifact doesn't follow symlinks.
         # Also resolve the sdcard.img produced by the target's post-image.sh.
         run: |
+          for f in output/${{ matrix.target }}/images/rootfs.ext2 \
+                   output/${{ matrix.target }}/images/sdcard.img; do
+            if [ ! -e "$f" ]; then
+              echo "ERROR: $f missing — the build step did not produce images." >&2
+              echo "Build reported success but no images exist; check the build log" >&2
+              echo "(a masked Buildroot failure, e.g. a missing/stale package hash)." >&2
+              ls -la output/${{ matrix.target }}/images/ 2>/dev/null || true
+              tail -50 output/${{ matrix.target }}/build-attempt.log 2>/dev/null || true
+              exit 1
+            fi
+          done
           cp -L output/${{ matrix.target }}/images/rootfs.ext2 \
                  output/${{ matrix.target }}/images/rootfs-resolved.ext4
           cp -L output/${{ matrix.target }}/images/sdcard.img \
